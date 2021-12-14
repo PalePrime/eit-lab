@@ -1,0 +1,29 @@
+#ifndef PROGRAM_CONFIG_H
+#define PROGRAM_CONFIG_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define PROGRAM_TASK_CNT 10
+#define DEBUG_BUFFER 1024
+
+#define REPORT_STACK_SIZE configMINIMAL_STACK_SIZE
+#define REPORT_TICK_MS 2000
+#define REPORT_TASK_PRIO tskIDLE_PRIORITY + 2
+
+#define USB_STACK_SIZE configMINIMAL_STACK_SIZE
+#define USB_TASK_PRIO tskIDLE_PRIORITY + 5
+
+#define UAC2_STACK_SIZE configMINIMAL_STACK_SIZE
+#define UAC2_TASK_PRIO tskIDLE_PRIORITY + 4
+
+#define CDC_STACK_SIZE configMINIMAL_STACK_SIZE
+#define CDC_TASK_PRIO tskIDLE_PRIORITY + 4
+
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /*PROGRAM_CONFIG_H*/
