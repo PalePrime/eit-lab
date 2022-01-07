@@ -5,7 +5,8 @@
 #include <stdio.h>
 
 #include "pico/stdlib.h"
-#include "pico/multicore.h"
+#include "hardware/irq.h"
+//#include "pico/multicore.h"
 
 #include "bsp/board.h"
 #include "tusb.h"
@@ -20,12 +21,12 @@
 #include "display_handling.h"
 #include "task_tracing.h"
 
-int main(void) {
-  sleep_ms(100);
-  reset_block(RESETS_RESET_USBCTRL_BITS);
-  sleep_ms(100);
-  unreset_block_wait(RESETS_RESET_USBCTRL_BITS);
+void fix_irq_priorities() {
+  irq_set_priority(USBCTRL_IRQ, 255);  
+}
 
+int main(void) {
+  fix_irq_priorities();
   board_init();
   stdout_uart_init();
 

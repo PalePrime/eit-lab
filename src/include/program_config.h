@@ -7,6 +7,7 @@ extern "C" {
 
 #define PROGRAM_TASK_CNT 10
 #define DEBUG_BUFFER 1024
+#define DEBUG_INFO_COUNT 20
 
 #define REPORT_STACK_SIZE configMINIMAL_STACK_SIZE
 #define REPORT_TICK_MS 2000
@@ -21,6 +22,13 @@ extern "C" {
 #define CDC_STACK_SIZE configMINIMAL_STACK_SIZE
 #define CDC_TASK_PRIO tskIDLE_PRIORITY + 4
 
+#define DISPLAY_STACK_SIZE     (3*configMINIMAL_STACK_SIZE)
+#define DISPLAY_TASK_PRIO tskIDLE_PRIORITY + 1
+#define DISPLAY_TICK_MS  100
+
+void usbDebugInc(uint32_t index);
+void usbDebugSet(uint32_t index, uint64_t value);
+void usbDebugMax(uint32_t index, uint64_t value);
 
 #ifdef __cplusplus
 }

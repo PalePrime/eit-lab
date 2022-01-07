@@ -67,8 +67,8 @@
 #endif
 
 // This uses FreeRTOS, but the Cmake files of the SDK sets CFG_TUSB_OS to OPT_OS_PICO using compiler command line definition
-//#undef CFG_TUSB_OS
-//#define CFG_TUSB_OS               OPT_OS_FREERTOS
+#undef CFG_TUSB_OS
+#define CFG_TUSB_OS               OPT_OS_FREERTOS
 
 // can be defined by compiler in DEBUG build, also set from the SDK
 #undef CFG_TUSB_DEBUG

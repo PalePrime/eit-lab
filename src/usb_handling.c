@@ -33,7 +33,7 @@ static void usbTask(void *pvParameters) {
   {
     usbTaskCalls++;
     tud_task();
-    vTaskDelay(1);
+    //vTaskDelay(1);
   }
 }
 

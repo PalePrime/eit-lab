@@ -13,6 +13,7 @@
 
 #include "libraries/pico_explorer/pico_explorer.hpp"
 
+#include "program_config.h"
 #include "display_handling.h"
 #include "program_state.h"
 
@@ -212,9 +213,6 @@ void display_loop() {
 
 }
 
-#define DISPLAY_STACK_SIZE     (3*configMINIMAL_STACK_SIZE)
-#define DISPLAY_TICK_MS  100
-
 static StackType_t  display_stack[DISPLAY_STACK_SIZE];
 static StaticTask_t display_taskdef;
 static TaskHandle_t display_handle;
@@ -246,7 +244,7 @@ void createDisplayHandler() {
     "Display",
     DISPLAY_STACK_SIZE,
     NULL,
-    tskIDLE_PRIORITY + 1,
+    DISPLAY_TASK_PRIO,
     display_stack,
     &display_taskdef);
 

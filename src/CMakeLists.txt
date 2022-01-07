@@ -1,6 +1,6 @@
 add_executable(pa_audio
         main.c
-        # sdkRTOSfix.c
+        sdkRTOSfix.c
         # msc_disk.c
         FreeRTOSHooks.c
         usb_descriptors.c
@@ -58,7 +58,7 @@ target_compile_definitions(pa_audio PRIVATE
         PICO_AUDIO_I2S_MONO_OUTPUT=0
         PICO_AUDIO_I2S_MONO_INPUT=0
 
-        # PICO_STDOUT_MUTEX=0
+        PICO_STDOUT_MUTEX=0
 )
 
 pico_add_extra_outputs(pa_audio)

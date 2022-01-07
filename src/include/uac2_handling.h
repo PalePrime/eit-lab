@@ -28,32 +28,6 @@ enum
   VOLUME_CTRL_SILENCE = 0x8000,
 };
 
-typedef struct TU_ATTR_PACKED
-{
-  union
-  {
-    struct TU_ATTR_PACKED
-    {
-      uint8_t recipient :  5; ///< Recipient type tusb_request_recipient_t.
-      uint8_t type      :  2; ///< Request type tusb_request_type_t.
-      uint8_t direction :  1; ///< Direction type. tusb_dir_t
-    } bmRequestType_bit;
-
-    uint8_t bmRequestType;
-  };
-
-  uint8_t bRequest;  ///< Request type audio_cs_req_t
-  uint8_t bChannelNumber;
-  uint8_t bControlSelector;
-  union
-  {
-    uint8_t bInterface;
-    uint8_t bEndpoint;
-  };
-  uint8_t bEntityID;
-  uint16_t wLength;
-} audio_control_request_t;
-
 void createUAC2Handler();
 void reportUSB_UAC2();
 

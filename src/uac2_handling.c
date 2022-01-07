@@ -74,8 +74,6 @@ static volatile uint32_t pwmDiv;
 static volatile uint32_t pwmDivMax;
 static volatile uint32_t pwmDivMin;
 
-#define DEBUG_INFO_COUNT 12
-
 static volatile uint64_t debugInfo[DEBUG_INFO_COUNT];
 
 #define PWM_DIV_INIT ((10 << 16) + (0x2c3u << 4))
@@ -123,8 +121,14 @@ void usbDebugInc(uint32_t index) {
   debugInfo[index]++;
 }
 
-void usbDebugSet(uint32_t index, uint32_t value) {
+void usbDebugSet(uint32_t index, uint64_t value) {
   debugInfo[index] = value;
+}
+
+void usbDebugMax(uint32_t index, uint64_t value) {
+  if (value > debugInfo[index]) {
+    debugInfo[index] = value;
+  }
 }
 
 void reportUSB_UAC2() {
@@ -656,7 +660,7 @@ bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const * p_reque
   uint8_t const itf = tu_u16_low(p_request->wIndex);
   uint8_t const alt = tu_u16_low(p_request->wValue);
   uac2Active = 0;
-  for (uint32_t i = 4; i<DEBUG_INFO_COUNT; i++) {
+  for (uint32_t i = 1; i<DEBUG_INFO_COUNT; i++) {
     debugInfo[i]=0;
   }
   debugInfo[0]++;
