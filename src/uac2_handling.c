@@ -9,25 +9,35 @@
 #include "usb_descriptors.h"
 #include "program_state.h"
 #include "hardware/gpio.h"
+#include "hardware/adc.h"
 #include "hardware/pwm.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/structs/usb.h"
 #include "pico/stdlib.h"
 
-static StackType_t  uac2_stack[UAC2_STACK_SIZE];
-static StaticTask_t uac2_taskdef;
-static TaskHandle_t uac2_handle;
+static StackType_t  uac2_out_stack[UAC2_OUT_STACK_SIZE];
+static StaticTask_t uac2_out_taskdef;
+static TaskHandle_t uac2_out_handle;
 
-#define DbgPin 5
-#define PwmPin 2
+static StackType_t  uac2_in_stack[UAC2_IN_STACK_SIZE];
+static StaticTask_t uac2_in_taskdef;
+static TaskHandle_t uac2_in_handle;
+
+#define DBG_PIN 5
+#define PWM_PIN 2
+#define ADC_PIN 26
 
 static uint8_t pinState = 0;
 
+// These are computed at UAC task start and then remain constant
 static uint   pwmSlice;
 static uint   pwmDmaCh;
+static uint   adcDmaCh;
 static volatile uint32_t * pwmDataPtr;
 static volatile uint32_t * pwmDivPtr;
+static volatile uint32_t * adcDataPtr;
+static volatile uint32_t * adcDivPtr;
 
 typedef enum {
   AUDIO_IDLE,
@@ -74,8 +84,6 @@ static volatile uint32_t pwmDiv;
 static volatile uint32_t pwmDivMax;
 static volatile uint32_t pwmDivMin;
 
-static volatile uint64_t debugInfo[DEBUG_INFO_COUNT];
-
 #define PWM_DIV_INIT ((10 << 16) + (0x2c3u << 4))
 #define PWM_DIV_SPAN (2<<12)
 // static volatile uint8_t pwmDivInt;
@@ -85,13 +93,15 @@ static volatile uint64_t debugInfo[DEBUG_INFO_COUNT];
 #define MAX_DROPPED_FRAMES 2500                    // as count
 #define MAX_DROPOUT_TIME (MAX_DROPPED_FRAMES*1000) // as time in us
 
-// Buffer for outgoing sound data
-#define FRAME_BUFFER_COUNT 16
+// General buffer parameters for sound
 #define SAMPLES_PER_FRAME 48
 #define BYTES_PER_SAMPLE 2
-#define BYTES_PER_FRAME (SAMPLES_PER_FRAME*BYTES_PER_SAMPLE)
-#define BUFFER_SIZE_SAMPLES (FRAME_BUFFER_COUNT*SAMPLES_PER_FRAME)
-#define BUFFER_SIZE (FRAME_BUFFER_COUNT*SAMPLES_PER_FRAME*BYTES_PER_SAMPLE)
+
+// Buffer for outgoing sound data
+#define FRAME_BUFFER_COUNT 16
+#define BYTES_PER_FRAME (SAMPLES_PER_FRAME * BYTES_PER_SAMPLE)
+#define BUFFER_SIZE_SAMPLES (FRAME_BUFFER_COUNT * SAMPLES_PER_FRAME)
+#define BUFFER_SIZE (BUFFER_SIZE_SAMPLES * BYTES_PER_SAMPLE)
 
 typedef union
 {
@@ -101,7 +111,13 @@ typedef union
 
 static out_buffer_t outBuffer;
 
-static int16_t dummyBuf[1000];
+// Buffer for incoming sound data
+#define ADC_CHUNK SAMPLES_PER_FRAME
+#define ADC_BUFFER_COUNT 16
+#define ADC_BUFFER_SIZE_SAMPLES (ADC_BUFFER_COUNT * ADC_CHUNK)
+
+static int16_t dummyBuf[ADC_BUFFER_SIZE_SAMPLES];
+static int16_t zeroBuf[SAMPLES_PER_FRAME];
 
 // Updated on every 16th usb frame interval
 static volatile int32_t usb16FrameTime;
@@ -116,16 +132,17 @@ static volatile int32_t pwmMaxLagTime;
 
 static volatile int64_t startPwmTime;
 
+static volatile int64_t debugInfo[DEBUG_INFO_COUNT];
 
 void usbDebugInc(uint32_t index) {
   debugInfo[index]++;
 }
 
-void usbDebugSet(uint32_t index, uint64_t value) {
+void usbDebugSet(uint32_t index, int64_t value) {
   debugInfo[index] = value;
 }
 
-void usbDebugMax(uint32_t index, uint64_t value) {
+void usbDebugMax(uint32_t index, int64_t value) {
   if (value > debugInfo[index]) {
     debugInfo[index] = value;
   }
@@ -175,7 +192,7 @@ void reportUSB_UAC2() {
   printf("Debug info:           ");
   uint32_t dbgIdx=0;
   while (dbgIdx<DEBUG_INFO_COUNT) {
-    printf("%15llu ", debugInfo[dbgIdx++]);
+    printf("%15lli ", debugInfo[dbgIdx++]);
     if (!(dbgIdx & 0x3u)) {
       printf("\n                      ");
     }
@@ -217,10 +234,10 @@ static void pwmDmaHandler() {
   } else {
     dmaRunning = 0;
   }
-  dma_hw->ints0 = 1u << pwmDmaCh;
+  dma_hw->ints1 = 1u << pwmDmaCh;
 }
 
-static void uac2Task(void *pvParameters) {
+static void uac2OutTask(void *pvParameters) {
   uint32_t      newCount;
   uint8_t       *bytePtr;
   uint8_t       *maxBytePtr = outBuffer.bytes + BUFFER_SIZE;
@@ -349,7 +366,7 @@ static void uac2Task(void *pvParameters) {
           timeOut = portMAX_DELAY;
           audioState = AUDIO_IDLE;
           pinState = 0;
-          gpio_put(DbgPin, pinState);
+          gpio_put(DBG_PIN, pinState);
         }
       }
     }
@@ -384,11 +401,54 @@ static void uac2Task(void *pvParameters) {
   }
 }
 
+static void adcDmaHandler() {
+  static uint32_t bufferNr = 0;
+  BaseType_t taskWoken = pdFALSE;
+  xTaskNotifyFromISR(uac2_in_handle, bufferNr, eSetValueWithOverwrite, &taskWoken);
+  bufferNr++;
+  if (bufferNr>=ADC_BUFFER_COUNT) {
+    bufferNr = 0;
+  }
+  dma_channel_set_write_addr(adcDmaCh, &dummyBuf[bufferNr * ADC_CHUNK], true);
+  portYIELD_FROM_ISR(taskWoken);
+  dma_hw->ints0 = 1u << adcDmaCh;
+}
+
+static void uac2InTask(void *pvParameters) {
+  int32_t high = INT16_MIN;
+  int32_t low  = INT16_MAX;
+  while(true) {
+    uint32_t bufferNr = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    bufferNr += ADC_BUFFER_COUNT >> 1;
+    if (bufferNr>=ADC_BUFFER_COUNT) {
+      bufferNr -= ADC_BUFFER_COUNT;
+    }
+    uint32_t base = bufferNr * ADC_CHUNK;
+    usbDebugInc(19);
+    int32_t sum  = 0;
+    for (uint32_t i=0; i<ADC_CHUNK; i++) {
+      int32_t sample = ((dummyBuf[base + i] & 0x0fff) - 2048) << 4;
+      sum += sample;
+      if (sample>high) {
+        high = sample;
+      }
+      if (sample<low) {
+        low = sample;
+      }
+      dummyBuf[base + i] = sample;
+    }
+    tud_audio_write(&dummyBuf[base], BYTES_PER_FRAME);
+    usbDebugSet(16, sum/ADC_CHUNK);
+    usbDebugSet(17, low);
+    usbDebugSet(18, high);
+  }
+}
+
 void createUAC2Handler() {
-  gpio_set_function(DbgPin, GPIO_FUNC_SIO);
-  gpio_set_dir(DbgPin, GPIO_OUT);
+  gpio_set_function(DBG_PIN, GPIO_FUNC_SIO);
+  gpio_set_dir(DBG_PIN, GPIO_OUT);
   pinState = 0;
-  gpio_put(DbgPin, pinState);
+  gpio_put(DBG_PIN, pinState);
 
   // pwmDivInt = 10;
   // pwmDivFrac = 3;
@@ -398,13 +458,10 @@ void createUAC2Handler() {
   pwmDivMin = PWM_DIV_INIT - PWM_DIV_SPAN;
 
 
-  for (int32_t i=0; i<16; i++) dummyBuf[i]=256;
-  //dummyBuf[47] = 127;
 
-
-  
-  gpio_set_function(PwmPin, GPIO_FUNC_PWM);
-  pwmSlice = pwm_gpio_to_slice_num(PwmPin);
+  // Set up PWM pin for audio out
+  gpio_set_function(PWM_PIN, GPIO_FUNC_PWM);
+  pwmSlice = pwm_gpio_to_slice_num(PWM_PIN);
   pwm_set_wrap(pwmSlice, 255);
   //pwm_set_clkdiv_int_frac(pwmSlice, pwmDivInt, pwmDivFrac);
   //pwm_set_chan_level(pwmSlice, PWM_CHAN_A, 127);
@@ -414,18 +471,19 @@ void createUAC2Handler() {
   *pwmDivPtr = pwmDiv >> 12;
   pwm_set_enabled(pwmSlice, true);
 
+  // Set up DMA channel for audio out
   pwmDmaCh = dma_claim_unused_channel(true);
-  dma_channel_config c = dma_channel_get_default_config(pwmDmaCh);
-  channel_config_set_transfer_data_size(&c, DMA_SIZE_16);
-  channel_config_set_write_increment(&c, false);
-  channel_config_set_read_increment(&c, true);
-  channel_config_set_dreq(&c, DREQ_PWM_WRAP1);
+  dma_channel_config c1 = dma_channel_get_default_config(pwmDmaCh);
+  channel_config_set_transfer_data_size(&c1, DMA_SIZE_16);
+  channel_config_set_write_increment(&c1, false);
+  channel_config_set_read_increment(&c1, true);
+  channel_config_set_dreq(&c1, DREQ_PWM_WRAP1);
 
   dma_channel_configure(
     pwmDmaCh,
-    &c,
+    &c1,
     pwmDataPtr,       // Write address
-    dummyBuf,         // Read address
+    outBuffer.samples,// Read address
     SAMPLES_PER_FRAME,
     false             // Start
   );
@@ -435,13 +493,59 @@ void createUAC2Handler() {
   irq_set_exclusive_handler(DMA_IRQ_1, pwmDmaHandler);
   irq_set_enabled(DMA_IRQ_1, true);
 
-  uac2_handle = xTaskCreateStatic(uac2Task,
-    "USB UAC2",
-    UAC2_STACK_SIZE,
+  // Set up ADC pin for audio in
+  adc_init();
+  adc_gpio_init(ADC_PIN);
+  adc_select_input(0);
+  adc_set_clkdiv(999.0); // 48 MHz / (999+1) => 48 kHz
+  adc_fifo_setup(true, true, 2, false, false);
+  adcDataPtr = &adc_hw->fifo;
+
+  // Set up DMA channel for audio in
+  adcDmaCh = dma_claim_unused_channel(true);
+  dma_channel_config c2 = dma_channel_get_default_config(adcDmaCh);
+  channel_config_set_transfer_data_size(&c2, DMA_SIZE_16);
+  channel_config_set_write_increment(&c2, true);
+  channel_config_set_read_increment(&c2, false);
+  channel_config_set_dreq(&c2, DREQ_ADC);
+
+  for (uint32_t i=0; i<ADC_BUFFER_SIZE_SAMPLES; i++) {
+    dummyBuf[i] = 2048;
+  }
+
+  dma_channel_configure(
+    adcDmaCh,
+    &c2,
+    dummyBuf,         // Write address
+    adcDataPtr,       // Read address
+    ADC_CHUNK,        // Words to transfer
+    false             // Start
+  );
+
+  dma_channel_set_irq0_enabled(adcDmaCh, true);
+  dma_channel_set_irq1_enabled(adcDmaCh, false);
+  irq_set_exclusive_handler(DMA_IRQ_0, adcDmaHandler);
+  irq_set_enabled(DMA_IRQ_0, true);
+
+  // Finally, start the ADC and DMA
+  dma_channel_set_write_addr(adcDmaCh, dummyBuf, true);
+  adc_run(true);
+
+  uac2_out_handle = xTaskCreateStatic(uac2OutTask,
+    "UAC2 Out",
+    UAC2_OUT_STACK_SIZE,
     NULL,
-    UAC2_TASK_PRIO,
-    uac2_stack,
-    &uac2_taskdef);
+    UAC2_OUT_TASK_PRIO,
+    uac2_out_stack,
+    &uac2_out_taskdef);
+
+  uac2_in_handle = xTaskCreateStatic(uac2InTask,
+    "UAC2 In",
+    UAC2_IN_STACK_SIZE,
+    NULL,
+    UAC2_IN_TASK_PRIO,
+    uac2_in_stack,
+    &uac2_in_taskdef);
 }
 
 bool tud_audio_rx_done_pre_read_cb(uint8_t rhport, uint16_t n_bytes_received, uint8_t func_id, uint8_t ep_out, uint8_t cur_alt_setting) {
@@ -449,7 +553,7 @@ bool tud_audio_rx_done_pre_read_cb(uint8_t rhport, uint16_t n_bytes_received, ui
   static uint64_t saveUsbTime;
   uint64_t currentFrameTime = to_us_since_boot(get_absolute_time());
   pinState = !pinState;
-  gpio_put(DbgPin, pinState);
+  gpio_put(DBG_PIN, pinState);
 
   int32_t frameNr = usb_hw->sof_rd;
   static int32_t lastFrameNr;
@@ -504,9 +608,17 @@ bool tud_audio_rx_done_pre_read_cb(uint8_t rhport, uint16_t n_bytes_received, ui
 }
 
 bool tud_audio_rx_done_post_read_cb(uint8_t rhport, uint16_t n_bytes_received, uint8_t func_id, uint8_t ep_out, uint8_t cur_alt_setting) {
-  xTaskNotifyGive(uac2_handle);
+  xTaskNotifyGive(uac2_out_handle);
   return true;
+}
 
+bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t func_id, uint8_t ep_in, uint8_t cur_alt_setting) {
+  // tud_audio_write(zeroBuf, BYTES_PER_FRAME);
+  return true;
+}
+
+bool tud_audio_tx_done_post_load_cb(uint8_t rhport, uint16_t n_bytes_copied, uint8_t func_id, uint8_t ep_in, uint8_t cur_alt_setting) {
+  return true;
 }
 
 // Audio controls
@@ -659,13 +771,19 @@ bool tud_audio_set_req_entity_cb(uint8_t rhport, tusb_control_request_t const *p
 bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const * p_request) {
   uint8_t const itf = tu_u16_low(p_request->wIndex);
   uint8_t const alt = tu_u16_low(p_request->wValue);
-  uac2Active = 0;
-  for (uint32_t i = 1; i<DEBUG_INFO_COUNT; i++) {
-    debugInfo[i]=0;
+  if (itf == ITF_NUM_AUDIO_STREAMING_SPK) {
+    uac2Active = 0;
+    for (uint32_t i = 2; i<DEBUG_INFO_COUNT; i++) {
+      debugInfo[i]=0;
+    }
+    debugInfo[0]++;
+    debugInfo[3] = to_us_since_boot(get_absolute_time());
+    return true;
+  } else if (itf == ITF_NUM_AUDIO_STREAMING_MIC) {
+    debugInfo[1]++;
+    return true;
   }
-  debugInfo[0]++;
-  debugInfo[3] = to_us_since_boot(get_absolute_time());
-  return true;
+  return false;
 }
 
 bool tud_audio_set_itf_close_EP_cb(uint8_t rhport, tusb_control_request_t const * p_request) {

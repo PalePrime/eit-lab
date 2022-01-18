@@ -94,7 +94,7 @@ static void reportMessage() {
 
 static void reportTask(void *pvParameters) {
   uint32_t count;
-  sendRegisterEvent(REPORT_MODE, SET, USB_REPORTING);
+  sendRegisterEvent(REPORT_MODE, SET, NO_REPORTING);
   while(true)
   {
     count = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);

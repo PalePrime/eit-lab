@@ -1,7 +1,5 @@
 add_executable(pa_audio
         main.c
-        sdkRTOSfix.c
-        # msc_disk.c
         FreeRTOSHooks.c
         usb_descriptors.c
         display_handling.cpp
@@ -45,20 +43,14 @@ target_compile_definitions(pa_audio PRIVATE
 
         AUDIO_FREQ_MAX=48000
 
-        # ours are zero based, so say so
-        PICO_USBDEV_USE_ZERO_BASED_INTERFACES=1
+        # This is critical for FreeRTOS, TinyUSB and Pico SDK to play nicely
+        # The FreeRTOS port sets priority levels for timer and SVC interrupts to 255 (lowest level)
+        # The TinyUSB port installs the USB interrupt handler at Pico SDK default priority
+        # The Pico SDK sets default interrupt priority to 128 (middle level) unless adjusted as below
+        # Without this setting the USB interrupt handler violates FreeRTOS assumptions by preempting its handlers
+        # effectively creating a spurious real time bug that really haunted me...
+        PICO_DEFAULT_IRQ_PRIORITY=255
 
-        # need large descriptor
-        PICO_USBDEV_MAX_DESCRIPTOR_SIZE=256
-
-
-        PICO_USBDEV_ISOCHRONOUS_BUFFER_STRIDE_TYPE=1
-        PICO_USBDEV_ENABLE_DEBUG_TRACE
-
-        PICO_AUDIO_I2S_MONO_OUTPUT=0
-        PICO_AUDIO_I2S_MONO_INPUT=0
-
-        PICO_STDOUT_MUTEX=0
 )
 
 pico_add_extra_outputs(pa_audio)

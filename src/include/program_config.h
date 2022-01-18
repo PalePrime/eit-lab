@@ -16,19 +16,22 @@ extern "C" {
 #define USB_STACK_SIZE configMINIMAL_STACK_SIZE
 #define USB_TASK_PRIO tskIDLE_PRIORITY + 5
 
-#define UAC2_STACK_SIZE configMINIMAL_STACK_SIZE
-#define UAC2_TASK_PRIO tskIDLE_PRIORITY + 4
+#define UAC2_OUT_STACK_SIZE configMINIMAL_STACK_SIZE
+#define UAC2_OUT_TASK_PRIO tskIDLE_PRIORITY + 4
+
+#define UAC2_IN_STACK_SIZE configMINIMAL_STACK_SIZE
+#define UAC2_IN_TASK_PRIO tskIDLE_PRIORITY + 4
 
 #define CDC_STACK_SIZE configMINIMAL_STACK_SIZE
-#define CDC_TASK_PRIO tskIDLE_PRIORITY + 4
+#define CDC_TASK_PRIO tskIDLE_PRIORITY + 3
 
 #define DISPLAY_STACK_SIZE     (3*configMINIMAL_STACK_SIZE)
 #define DISPLAY_TASK_PRIO tskIDLE_PRIORITY + 1
 #define DISPLAY_TICK_MS  100
 
-void usbDebugInc(uint32_t index);
-void usbDebugSet(uint32_t index, uint64_t value);
-void usbDebugMax(uint32_t index, uint64_t value);
+// void usbDebugInc(uint32_t index);
+// void usbDebugSet(uint32_t index, int64_t value);
+// void usbDebugMax(uint32_t index, int64_t value);
 
 #ifdef __cplusplus
 }

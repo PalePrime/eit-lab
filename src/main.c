@@ -6,6 +6,7 @@
 
 #include "pico/stdlib.h"
 #include "hardware/irq.h"
+#include "hardware/gpio.h"
 //#include "pico/multicore.h"
 
 #include "bsp/board.h"
@@ -21,12 +22,15 @@
 #include "display_handling.h"
 #include "task_tracing.h"
 
-void fix_irq_priorities() {
-  irq_set_priority(USBCTRL_IRQ, 255);  
-}
+#define PWR_SAVE_PIN 23
 
 int main(void) {
-  fix_irq_priorities();
+
+  // Turn off power save mode to improve ADC performance
+  gpio_set_function(PWR_SAVE_PIN, GPIO_FUNC_SIO);
+  gpio_set_dir(PWR_SAVE_PIN, GPIO_OUT);
+  gpio_put(PWR_SAVE_PIN, true);
+
   board_init();
   stdout_uart_init();
 

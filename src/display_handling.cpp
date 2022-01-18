@@ -58,14 +58,14 @@ static bool is_pressed(uint8_t button) {
   return !gpio_get(button);
 }
 
-static float get_adc(uint8_t channel) {
-  adc_select_input(channel);
-  // scale raw 12-bit adc value to 0 .. 1 float
-  float result = float(adc_read()) / (1 << 12);
-  // clamp result to 0 .. 1
-  result = std::min(1.0f, std::max(0.0f, result));
-  return result;
-}
+// static float get_adc(uint8_t channel) {
+//   adc_select_input(channel);
+//   // scale raw 12-bit adc value to 0 .. 1 float
+//   float result = float(adc_read()) / (1 << 12);
+//   // clamp result to 0 .. 1
+//   result = std::min(1.0f, std::max(0.0f, result));
+//   return result;
+// }
 
 
 void display_init() {
@@ -117,11 +117,11 @@ void display_init() {
   gpio_set_function(PicoExplorer::Y, GPIO_FUNC_SIO); gpio_set_dir(PicoExplorer::Y, GPIO_IN); gpio_pull_up(PicoExplorer::Y);
 
   // setup ADC channels
-  adc_init();
-  const uint8_t ADC_BASE_PIN = 26;
-  adc_gpio_init(PicoExplorer::ADC0 + ADC_BASE_PIN);
-  adc_gpio_init(PicoExplorer::ADC1 + ADC_BASE_PIN);
-  adc_gpio_init(PicoExplorer::ADC2 + ADC_BASE_PIN);
+  // adc_init();
+  // const uint8_t ADC_BASE_PIN = 26;
+  // adc_gpio_init(PicoExplorer::ADC0 + ADC_BASE_PIN);
+  // adc_gpio_init(PicoExplorer::ADC1 + ADC_BASE_PIN);
+  // adc_gpio_init(PicoExplorer::ADC2 + ADC_BASE_PIN);
 
   // setup motor pins
   pwm_config motor_pwm_cfg = pwm_get_default_config();
@@ -143,7 +143,7 @@ void display_init() {
   for(int i = 0; i < SHAPE_CNT; i++) {
     pt shape;
     shape.x = rand() % 240;
-    shape.y = rand() % 135;
+    shape.y = rand() % 240;
     shape.r = (rand() % 10) + 3;
     shape.dx = float(rand() % 255) / 128.0f;
     shape.dy = float(rand() % 255) / 128.0f;
@@ -202,9 +202,11 @@ void display_loop() {
   }
 
   graphics.set_pen(255, 255, 255);
-  graphics.text("Time:",    Point(10, 190), 80); graphics.text(std::to_string(getTime()), Point(100, 190), 130);
+  // graphics.text("Time:",    Point(10, 180), 80); graphics.text(std::to_string(getTime()), Point(100, 180), 130);
   getMessage(scratch);
-  graphics.text("Message:", Point(10, 210), 80); graphics.text(std::string(scratch),      Point(100, 210), 130);
+  graphics.text("Message:", Point(10, 200), 80); graphics.text(std::string(scratch),      Point(100, 200), 130);
+  // sprintf(scratch, "%f", get_adc(0));
+  // graphics.text("ADC0:", Point(10, 220), 80); graphics.text(std::string(scratch),      Point(100, 220), 130);
 
   // update screen
   // screen.update();

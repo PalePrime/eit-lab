@@ -96,7 +96,16 @@ uint8_t const desc_fs_configuration[] =
   // Interface number, string index, EP Out & EP In address, EP size
   //TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 5, EPNUM_MSC_OUT, EPNUM_MSC_IN, 64),
 
-  TUD_AUDIO_EITLAB_DESCRIPTOR(/*_itfnum*/ ITF_NUM_AUDIO, /*_stridx*/ 5, /*_nBytesPerSample*/ CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX, /*_nBitsUsedPerSample*/ 8 * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX, /*_epout*/ EPNUM_AUDIO_OUT, /*_epsize*/ CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX, /*_epfb*/ EPNUM_AUDIO_FB_OUT)
+  //TUD_AUDIO_EITLAB_DESCRIPTOR(/*_itfnum*/ ITF_NUM_AUDIO, /*_stridx*/ 5, /*_nBytesPerSample*/ CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX, /*_nBitsUsedPerSample*/ 8 * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX, /*_epout*/ EPNUM_AUDIO_OUT, /*_epsize*/ CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX, /*_epfb*/ EPNUM_AUDIO_FB_OUT)
+
+  TUD_AUDIO_HEADSET_STEREO_DESCRIPTOR(
+    /*_stridx*/ 5, 
+    /*_nBytesPerSample*/ CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX, 
+    /*_nBitsUsedPerSample*/ 8 * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX, 
+    /*_epout*/ EPNUM_AUDIO_OUT, 
+    /*_epoutsize*/ CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX, 
+    /*_epin*/ EPNUM_AUDIO_IN, 
+    /*_epinsize*/ CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX)
 };
 
 
