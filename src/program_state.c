@@ -3,8 +3,10 @@
 #include "timers.h"
 #include "semphr.h"
 
+#include "pico/stdlib.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include "program_state.h"
 
 static StaticQueue_t event_queuedef;
@@ -45,6 +47,7 @@ uint8_t getMessage(char *buf) {
     xSemaphoreGive(state_lock);
     success = true;
   }
+  buf[0] = 0;
   return success;
 }
 
@@ -117,6 +120,9 @@ static void eventTask(void *pvParameters) {
         break;
       case MESSAGE:
         setMessage(msg.data.s_buffer);
+        if (getRegister(REPORT_MODE)==NO_REPORTING) {
+          printf("Message: %s\n", message);
+        }
       default:
         break;
       }
@@ -139,6 +145,20 @@ void createEventHandler() {
     event_stack,
     &event_taskdef);
   state_lock = xSemaphoreCreateMutexStatic(&state_lock_buffer);
+}
+
+// TODO: Queue raw data and perform the formatting in the event task
+void sendMessageEventvf(const char *format, va_list va) {
+  uint8_t str[S_BUFFER_SIZE+1];
+  vsnprintf(str, S_BUFFER_SIZE, format, va);
+  sendMessageEvent(str);
+}
+
+void sendMessageEventf(const char *format, ...) {
+    va_list va;
+    va_start(va, format);
+    sendMessageEventvf(format, va);
+    va_end(va);
 }
 
 void sendMessageEvent(char *str) {

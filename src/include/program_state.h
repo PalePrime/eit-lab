@@ -5,8 +5,6 @@
 extern "C" {
 #endif
 
-#include "pico/stdlib.h"
-
 typedef enum {
     USB_NOT_MOUNTED = 0,
     USB_MOUNTED,
@@ -69,9 +67,10 @@ typedef enum {
     REGISTER,
     BUTTON,
     MESSAGE,
+    MESSAGE_F
 } event_msg_type_t;
 
-#define S_BUFFER_SIZE 32
+#define S_BUFFER_SIZE 64
 
 typedef struct {
     uint8_t size;
@@ -101,7 +100,7 @@ typedef struct {
     event_msg_data_t data;
 } event_msg_t;
 
-#define EVENT_QUEUE_LENGTH 40
+#define EVENT_QUEUE_LENGTH 20
 #define EVENT_MSG_SIZE     sizeof(event_msg_t)
 
 uint32_t getTime();
@@ -111,6 +110,7 @@ uint8_t  getMessage(char *buf);
 void sendRegisterEvent(state_register_t reg, state_op_code_t op, uint32_t value);
 void sendButtonEvent(char txt, bool down);
 void sendMessageEvent(char *str);
+void sendMessageEventf(const char *format, ...);
 
 void createEventHandler();
 

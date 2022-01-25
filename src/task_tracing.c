@@ -3,6 +3,8 @@
 
 #include <stdio.h>
 
+#include "pico/stdlib.h"
+
 #include "program_config.h"
 #include "task_tracing.h"
 #include "program_state.h"
