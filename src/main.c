@@ -7,7 +7,7 @@
 #include "pico/stdlib.h"
 #include "hardware/irq.h"
 #include "hardware/gpio.h"
-//#include "pico/multicore.h"
+#include "pico/multicore.h"
 
 #include "bsp/board.h"
 #include "tusb.h"
@@ -31,7 +31,8 @@ int main(void) {
   gpio_set_dir(PWR_SAVE_PIN, GPIO_OUT);
   gpio_put(PWR_SAVE_PIN, true);
 
-  board_init();
+  // Need this for the debug probe to work, why though?
+  multicore_reset_core1();
   stdout_uart_init();
 
   createEventHandler();
@@ -47,4 +48,3 @@ int main(void) {
   /* should never reach here */
   panic_unsupported();  
 }
-

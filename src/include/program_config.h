@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#define PROGRAM_TASK_CNT 10
+#define PROGRAM_TASK_CNT 15
 #define DEBUG_BUFFER 1024
 #define DEBUG_INFO_COUNT 20
 
@@ -21,6 +21,9 @@ extern "C" {
 
 #define UAC2_IN_STACK_SIZE configMINIMAL_STACK_SIZE
 #define UAC2_IN_TASK_PRIO tskIDLE_PRIORITY + 6
+
+#define SPK_CH_STACK_SIZE configMINIMAL_STACK_SIZE
+#define SPK_CH_TASK_PRIO tskIDLE_PRIORITY + 5
 
 #define MIC_CH_STACK_SIZE configMINIMAL_STACK_SIZE
 #define MIC_CH_TASK_PRIO tskIDLE_PRIORITY + 5

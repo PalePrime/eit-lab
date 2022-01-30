@@ -24,6 +24,10 @@ static StackType_t  uac2_in_stack[UAC2_IN_STACK_SIZE];
 static StaticTask_t uac2_in_taskdef;
 static TaskHandle_t uac2_in_handle;
 
+static StackType_t  spk_ch_stack[SPK_CH_STACK_SIZE];
+static StaticTask_t spk_ch_taskdef;
+static TaskHandle_t spk_ch_handle;
+
 static StackType_t  mic_ch_stack[MIC_CH_STACK_SIZE];
 static StaticTask_t mic_ch_taskdef;
 static TaskHandle_t mic_ch_handle;
@@ -34,7 +38,7 @@ static TaskHandle_t mic_ch_handle;
 
 static uint8_t pinState = 0;
 
-// These are computed at UAC task start and then remain constant
+// These are computed at program start and then remain constant
 static uint   pwmSlice;
 static uint   pwmDmaCh;
 static uint   adcDmaCh;
@@ -69,15 +73,49 @@ char* stateString(audio_state_t state) {
   }
 }
 
-// The values in these structs will be updated only by the
-// channels dedicated controller task and all individual values are atomic
+// General buffer parameters for sound
+#define SAMPLES_PER_FRAME 48
+#define BYTES_PER_SAMPLE 2
+
+// Buffer for incoming sound data
+#define MAX_IO_CHUNK SAMPLES_PER_FRAME
+
+static int16_t micBuf[2 * MAX_IO_CHUNK];    // Double buffer incoming data from ADC 
+static int16_t zeroBuf[MAX_IO_CHUNK];
+
+// Buffer for outgoing sound data
+// #define SPK_CHUNKS 16
+
+static int16_t spkBuf[2 * MAX_IO_CHUNK];
+
+// The values in this struct will be updated only by a
+// single task and all individual updates are atomic
+// 32-bit writes, so no mutex required
 typedef struct {
-    audio_state_t state;
-    uint32_t sendClkDiv;
-    uint32_t recClkDiv;
+  // Updated from controller task
+  audio_state_t state;
+  uint32_t ioChunk;
+  uint32_t clkDiv;
+  int32_t queuedSamples;
+  int32_t minQueuedSamples;
+  int32_t maxQueuedSamples;
+  uint32_t receiveCalls;
+  uint32_t sendCalls;
+  // Updated from ISR
+  uint32_t isrCtrlFails;
+  // Updated from USB task
+  uint32_t usbCtrlFails;
 } usb_channel_t;
 
-static usb_channel_t micCh;
+static usb_channel_t micCh = {
+  .state = AUDIO_IDLE,
+  .ioChunk = SAMPLES_PER_FRAME / 2
+};
+
+static usb_channel_t spkCh = {
+  .state = AUDIO_IDLE,
+  .ioChunk = SAMPLES_PER_FRAME / 2
+};
 
 typedef enum {
   CH_DATA_RECEIVED,
@@ -96,104 +134,22 @@ typedef struct {
 #define CH_MSG_SIZE sizeof(ch_cmd_msg_t)
 #define CH_MSG_Q_LEN 4
 
-static StaticQueue_t input_cmd_q_def;
-static uint8_t       input_cmd_q_buf[CH_MSG_Q_LEN*CH_MSG_SIZE];
-static QueueHandle_t input_cmd_q;
+static StaticQueue_t mic_cmd_q_def;
+static uint8_t       mic_cmd_q_buf[CH_MSG_Q_LEN*CH_MSG_SIZE];
+static QueueHandle_t mic_cmd_q;
 
-inline static void controlMsg(QueueHandle_t queue, ch_cmd_t cmd, uint64_t value) {
+static StaticQueue_t spk_cmd_q_def;
+static uint8_t       spk_cmd_q_buf[CH_MSG_Q_LEN*CH_MSG_SIZE];
+static QueueHandle_t spk_cmd_q;
+
+inline static uint32_t controlMsg(QueueHandle_t queue, ch_cmd_t cmd, uint64_t value) {
   ch_cmd_msg_t msg = {
     .cmd = cmd,
     .count = value,
     .time = to_us_since_boot(get_absolute_time())
   };
-  xQueueSendToBack(queue, &msg, 0);
+  return xQueueSendToBack(queue, &msg, 0);
 }
-
-static volatile uint32_t uac2OutActive;
-static volatile uint32_t uac2ResetCount;
-
-static volatile uint32_t frameCountCB;
-static volatile uint32_t longFramesCB;
-static volatile uint32_t shortFramesCB;
-static volatile uint32_t byteCountCB;
-static volatile uint64_t firstFrameTimeCB;
-static volatile uint64_t lastFrameTimeCB;
-static volatile uint64_t totalTimeCB;
-
-static volatile audio_state_t audioState;
-static volatile uint32_t frameCount;
-static volatile uint32_t byteCount;
-static volatile uint32_t zeroCount;
-static volatile uint32_t nonZeroCount;
-
-
-static volatile int64_t finalByteRate;
-
-//static volatile uint32_t rateUpdateCount;
-static volatile uint32_t timeOutCount;
-//static volatile uint32_t bufferWrapCount;
-
-//static volatile uint64_t runningDmaTime;
-
-static volatile uint32_t dmaCount;
-//static volatile uint64_t savedFrameTime;
-//static volatile int64_t targetTimeSkew = 8500;
-//static volatile int64_t timeSkew;
-
-static volatile uint8_t dmaRunning;
-//static volatile uint8_t skewUpdated;
-
-static volatile uint32_t pwmDiv;
-static volatile uint32_t pwmDivMax;
-static volatile uint32_t pwmDivMin;
-
-#define PWM_DIV_INIT ((10 << 16) + (0x2c3u << 4))
-#define PWM_DIV_SPAN (2<<12)
-// static volatile uint8_t pwmDivInt;
-// static volatile uint8_t pwmDivFrac;
-
-// Max number of missing USB frames before dropping connection
-#define MAX_DROPPED_FRAMES 2500                    // as count
-#define MAX_DROPOUT_TIME (MAX_DROPPED_FRAMES*1000) // as time in us
-
-// General buffer parameters for sound
-#define SAMPLES_PER_FRAME 48
-#define BYTES_PER_SAMPLE 2
-
-// Buffer for outgoing sound data
-#define FRAME_BUFFER_COUNT 16
-#define BYTES_PER_FRAME (SAMPLES_PER_FRAME * BYTES_PER_SAMPLE)
-#define BUFFER_SIZE_SAMPLES (FRAME_BUFFER_COUNT * SAMPLES_PER_FRAME)
-#define BUFFER_SIZE (BUFFER_SIZE_SAMPLES * BYTES_PER_SAMPLE)
-
-typedef union
-{
-  uint8_t bytes[BUFFER_SIZE];
-  int16_t samples[BUFFER_SIZE_SAMPLES];
-} out_buffer_t;
-
-static out_buffer_t outBuffer;
-
-// Buffer for incoming sound data
-#define ADC_CHUNK SAMPLES_PER_FRAME
-#define ADC_BUFFER_COUNT 16
-#define ADC_BUFFER_SIZE_SAMPLES (ADC_BUFFER_COUNT * ADC_CHUNK)
-
-static int16_t dummyBuf[ADC_BUFFER_SIZE_SAMPLES];
-static int16_t zeroBuf[SAMPLES_PER_FRAME];
-
-// Updated on every 16th usb frame interval
-static volatile int32_t usb16FrameTime;
-static volatile int32_t pwm16FrameTime;
-static volatile int64_t usbTotalTime; // TODO protect by semaphore
-static volatile int64_t pwmTotalTime;
-
-static volatile int32_t pwmLagTime;
-static volatile int32_t pwmAccLagTime;
-static volatile int32_t pwmMinLagTime;
-static volatile int32_t pwmMaxLagTime;
-
-static volatile int64_t startPwmTime;
 
 static volatile int64_t debugInfo[DEBUG_INFO_COUNT];
 
@@ -213,30 +169,17 @@ void usbDebugMax(uint32_t index, int64_t value) {
 
 void reportUSB_UAC2() {
 
-  printf("Audio state:          %15s %15s\n", stateString(audioState), stateString(micCh.state));
-  printf("Audio active, resets: %15lu %15lu\n", uac2OutActive, uac2ResetCount);
+  printf("Audio spk, mic:       %15s %15s\n", stateString(spkCh.state), stateString(micCh.state));
   
-  printf("Frames CB, task, dma: %15lu %15lu %15lu\n",  frameCountCB, frameCount, dmaCount);
-  printf("Frames zero, data:    %15lu %15lu\n",  zeroCount, nonZeroCount);
-  printf("Bytes CB, task:       %15lu %15lu\n",  byteCountCB, byteCount);
+  printf("Spk frames in, out:   %15lu %15lu\n",  spkCh.receiveCalls, spkCh.sendCalls);
+  printf("Spk Q-len, clkDiv:    %15li %15lu\n",  spkCh.queuedSamples, spkCh.clkDiv);
+  printf("Spk Q-len min, max:   %15li %15lu\n",  spkCh.minQueuedSamples, spkCh.maxQueuedSamples);
+  printf("Spk C-fails usb, dma: %15lu %15lu\n",  spkCh.usbCtrlFails, spkCh.isrCtrlFails);
 
-  printf("Time first, last, tot:%15llu %15llu %15llu\n", firstFrameTimeCB, lastFrameTimeCB, totalTimeCB);
-  printf("Time usb, pwm, lag:   %15llu %15llu %15li\n", usbTotalTime, pwmTotalTime, pwmLagTime);
-  
-  // printf("Lag current, target:  %15lli %15lli\n", timeSkew, targetTimeSkew);
-  printf("Lag curr, acc:        %15li %15li\n", pwmLagTime, pwmAccLagTime);
-  printf("Lag min, max:         %15li %15li\n", pwmMinLagTime, pwmMaxLagTime);
-
-  // printf("PWM div int, frac:    %15hhu %15hhu\n", pwmDivInt, pwmDivFrac);
-  printf("PWM div int, frac:    %15lu %15lu\n", pwmDiv>>16, (pwmDiv)&0xffff);
-  printf("16 frames usb, pwm:   %15li %15li\n", usb16FrameTime, pwm16FrameTime);
-
-  //printf("DMA rate updates:     %15lu\n",  rateUpdateCount);  
-  printf("Final byte rate:      %15lli\n", finalByteRate);  
-
-  printf("Frame per long, short:%15lu %15lu\n",  longFramesCB, shortFramesCB);
-  printf("Time out count:       %15lu\n",  timeOutCount);
-  //printf("Buffer wrap count:    %15lu\n",  bufferWrapCount);
+  printf("Mic frames in, out:   %15lu %15lu\n",  micCh.receiveCalls, micCh.sendCalls);
+  printf("Mic Q-len, clkDiv:    %15li %15lu\n",  micCh.queuedSamples, micCh.clkDiv);
+  printf("Mic Q-len min, max:   %15li %15lu\n",  micCh.minQueuedSamples, micCh.maxQueuedSamples);
+  printf("Mic C-fails usb, dma: %15lu %15lu\n",  micCh.usbCtrlFails, micCh.isrCtrlFails);
 
   printf("Debug info:           ");
   uint32_t dbgIdx=0;
@@ -251,175 +194,87 @@ void reportUSB_UAC2() {
 }
 
 static void pwmDmaHandler() {
-  static uint32_t rdIndex;
-  static uint64_t savePwmTime;
-  uint64_t runningPwmTime = to_us_since_boot(get_absolute_time());
-
-  if (!dmaRunning) {
-    dmaRunning = 1;
-    dmaCount = 1;
-    rdIndex = SAMPLES_PER_FRAME;    // First frame already transferred
-    startPwmTime = runningPwmTime;
-    savePwmTime = runningPwmTime;
-    pwm16FrameTime = 16000;
-    pwmTotalTime = 0;
-    pwmLagTime = 0;
+  static uint32_t base = 0;
+  BaseType_t taskWoken = pdFALSE;
+  ch_cmd_msg_t msg = {
+    .cmd = CH_DATA_SENT,
+    .count = spkCh.ioChunk,
+    .time = to_us_since_boot(get_absolute_time())
+  };
+  uint32_t lastBase = base;
+  if (base == 0) {
+    base = spkCh.ioChunk;
   } else {
-    dmaCount++;
-    if ((dmaCount & 0x000fu)==7) {
-      pwm16FrameTime = runningPwmTime - savePwmTime;
-      savePwmTime = runningPwmTime;
-      pwmTotalTime = runningPwmTime - startPwmTime;
-      //pwmLagTime = pwmTotalTime - usbTotalTime;
-    }
-    rdIndex += SAMPLES_PER_FRAME;
-    if (rdIndex >= BUFFER_SIZE_SAMPLES) {
-      rdIndex = 0;
-    }
+    base = 0;
   }
-  
-  if (frameCount > dmaCount) {
-    dma_channel_set_read_addr(pwmDmaCh, &outBuffer.samples[rdIndex], true);
-  } else {
-    dmaRunning = 0;
+  if (spkCh.state != AUDIO_IDLE) {
+    dma_channel_set_read_addr(pwmDmaCh, &spkBuf[base], true);
+    if (xQueueSendToBackFromISR(spk_cmd_q, &msg, NULL) != pdPASS) {
+      spkCh.isrCtrlFails++;
+    }
+    xTaskNotifyFromISR(uac2_out_handle, lastBase, eSetValueWithOverwrite, &taskWoken);
+    portYIELD_FROM_ISR(taskWoken);
   }
-  dma_hw->ints1 = 1u << pwmDmaCh;
+  dma_hw->ints0 = 1u << pwmDmaCh;
 }
 
 static void uac2OutTask(void *pvParameters) {
-  uint32_t      newCount;
-  uint8_t       *bytePtr;
-  uint8_t       *maxBytePtr = outBuffer.bytes + BUFFER_SIZE;
-  int16_t       *samplePtr;
-  int32_t       adjust;
-  TickType_t    timeOut = portMAX_DELAY;
-  int64_t       lastTaskTime;
-  int64_t       startUsbTime;
-  //uint32_t      filledFrames;
-  while(true)
-  {
-    newCount = ulTaskNotifyTake(pdTRUE, timeOut);
-    uint64_t now = to_us_since_boot(get_absolute_time());
 
-    uint32_t xx = tud_audio_available();
-    if (xx<96) {
-      debugInfo[10]++;
-    } else if (xx>96) {
-      debugInfo[11]++;
-    }
+  //uint16_t pwmDiv = initialSpkDiv(audioSampleRate, spkChSettings.baseClock);
 
-    // Fake possible missing USB frames
-    while (dmaRunning && now > (lastTaskTime + 1500)) {
-      lastTaskTime += 1000;
-      //filledFrames++;
-      timeOutCount++;
-      frameCount++;
-      bytePtr += BYTES_PER_FRAME;
-      if (bytePtr>=maxBytePtr) {
-        bytePtr -= BUFFER_SIZE;
-      }
-      for (uint32_t i=0; i<SAMPLES_PER_FRAME; i++) {
-        *(samplePtr++) = 0;
-        if (samplePtr>=(int16_t*)maxBytePtr) {
-          samplePtr = outBuffer.samples;
-        }
-      }
-      byteCount += BYTES_PER_FRAME;
-      if ((frameCount & 0x000fu)==0) {
-        usbTotalTime += usb16FrameTime;
-        lastTaskTime += (usb16FrameTime - 16000);
-      }
-    }
+  // Set up PWM pin for audio out
+  gpio_set_function(PWM_PIN, GPIO_FUNC_PWM);
+  pwmSlice = pwm_gpio_to_slice_num(PWM_PIN);
+  pwm_set_wrap(pwmSlice, 255);
+  pwmDataPtr = &pwm_hw->slice[pwmSlice].cc;
+  *pwmDataPtr = 16;
+  pwmDivPtr = &pwm_hw->slice[pwmSlice].div;
+  //*pwmDivPtr = pwmDiv >> 12;
+  //pwm_set_enabled(pwmSlice, true);
 
-    if (newCount>0) {
-      lastTaskTime = now;
-      //filledFrames = 0;
-      switch (audioState) {
-      case AUDIO_IDLE:
-        bytePtr = outBuffer.bytes;
-        samplePtr = outBuffer.samples;
-        frameCount = 1;
-        dmaCount = 0;
-        byteCount = 0;
-        zeroCount = 0;
-        nonZeroCount = 0;
-        finalByteRate = 0;
-        timeOutCount = 0;
-        pwmMinLagTime = INT32_MAX;
-        pwmMaxLagTime = INT32_MIN;
-        pwmAccLagTime = 0;
-        pwmDiv = PWM_DIV_INIT;
-        adjust = 0;
-        *pwmDivPtr = pwmDiv >> 12;
-        timeOut = pdMS_TO_TICKS(1);
-        audioState = AUDIO_SYNC;
-        startUsbTime = now;
-        break;
-      case AUDIO_SYNC:
-        if ((frameCount & 0xf)==7) {
-          audioState = AUDIO_RUN;
-          startPwmTime = now;
-          dma_channel_set_read_addr(pwmDmaCh, outBuffer.samples, true);
-        }
-        frameCount++;
-      case AUDIO_RUN:
-        frameCount++;
-        break;
-      default:
-        panic("Bad audio state");
-        break;
-      }
+  
+  // Set up DMA channel for audio out
+  pwmDmaCh = dma_claim_unused_channel(true);
+  dma_channel_config c1 = dma_channel_get_default_config(pwmDmaCh);
+  channel_config_set_transfer_data_size(&c1, DMA_SIZE_16);
+  channel_config_set_write_increment(&c1, false);
+  channel_config_set_read_increment(&c1, true);
+  channel_config_set_dreq(&c1, DREQ_PWM_WRAP1);
 
-      int16_t nonZero = 0;
-      uint32_t chunkSize = 1;
-      uint32_t needBytes = 96;
-      while (needBytes) {
-        uint32_t maxChunk = MIN(needBytes, maxBytePtr - bytePtr);
-        chunkSize = tud_audio_read(bytePtr, maxChunk);
-        samplePtr = (int16_t*)bytePtr;
-        bytePtr += chunkSize;
-        needBytes -= chunkSize;
+  dma_channel_configure(
+    pwmDmaCh,
+    &c1,
+    pwmDataPtr,       // Write address
+    spkBuf,           // Read address
+    spkCh.ioChunk,
+    false             // Start
+  );
 
-        while (samplePtr<(int16_t*)bytePtr) {
-          int16_t sample = *samplePtr;
-          nonZero = nonZero | sample;
-          sample = sample>>8;           // -128 -- +127 in low byte, sign in high byte
-          sample = (sample+128) & 0xff; //    0 --  255 in low byte, zero in high byte
-          (*samplePtr++) = sample;
-        }
+  dma_channel_set_irq0_enabled(pwmDmaCh, false);
+  dma_channel_set_irq1_enabled(pwmDmaCh, true);
+  irq_set_exclusive_handler(DMA_IRQ_1, pwmDmaHandler);
+  irq_set_enabled(DMA_IRQ_1, true);
 
-        byteCount += chunkSize;
-        if(bytePtr==maxBytePtr) {
-          bytePtr = outBuffer.bytes;
-        } else if (bytePtr>maxBytePtr) {
-          panic("Bad out buffer state");
-        }
-      }
-
-      if (nonZero) {
-        nonZeroCount++;
-      } else {
-        zeroCount++;
-      }
-
-      if ((frameCount & 0x000fu)==0) {
-        usbTotalTime = now - startPwmTime;
-      }
-
+  int16_t buf[MAX_IO_CHUNK];
+  while(true) {
+    uint32_t base = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    uint32_t availableSamples = tud_audio_available() >> 1;
+    if (availableSamples >= spkCh.ioChunk) {
+      tud_audio_read(buf, spkCh.ioChunk << 1);
     } else {
-      if (now > lastFrameTimeCB + MAX_DROPOUT_TIME) {
-        if (audioState!=AUDIO_IDLE) {
-          finalByteRate = 1000000*((uint64_t)byteCount) / (totalTimeCB+1000);
-          //uac2Active = 0;
-          uac2ResetCount++;
-          timeOut = portMAX_DELAY;
-          audioState = AUDIO_IDLE;
-          pinState = 0;
-          gpio_put(DBG_PIN, pinState);
-        }
-      }
+      memset(buf, 0, spkCh.ioChunk << 1);
+      usbDebugInc(16);
     }
+    for (uint32_t i=0; i<spkCh.ioChunk; i++) {
+      int16_t sample = buf[i];
+      sample = sample>>8;           // -128 -- +127 in low byte, sign in high byte
+      sample = (sample+128) & 0xff; //    0 --  255 in low byte, zero in high byte
+      spkBuf[base + i] = sample;
+    }
+  }
+}
 
+/*
     if (dmaRunning && dmaCount > 16 && (frameCount & 0x000fu)==8) {
       pwmLagTime = pwmTotalTime - usbTotalTime ;
       if (pwmLagTime<pwmMinLagTime) {
@@ -441,23 +296,64 @@ static void uac2OutTask(void *pvParameters) {
       pwmDiv = PWM_DIV_INIT - adjust;
       
     }
+*/
 
-    if ((frameCount & 0x000fu) < ((pwmDiv >> 8) & 0x000fu)) {
-      *pwmDivPtr = (pwmDiv >> 12)+1;
-    } else {
-      *pwmDivPtr = pwmDiv >> 12;
-    }
-  }
+typedef struct {
+  usb_channel_t *ch;
+  QueueHandle_t *queue;
+  const char *idStr;
+  bool toUsb;
+  bool debug;
+  uint32_t baseClock;
+  void (*init)(void);
+  uint32_t (*initialDiv)(uint32_t, uint32_t);
+  void (*setDiv)(uint32_t);
+  void (*open)(void);
+  void (*close)(void);
+} usb_channel_settings_t;
+
+static void initSpkCh() {
+  pwm_set_enabled(pwmSlice, true);
 }
+
+static void openSpkCh() {
+  dma_channel_set_read_addr(pwmDmaCh, spkBuf, true);
+}
+
+static void closeSpkCh() {
+  dma_channel_abort(pwmDmaCh);
+}
+
+uint32_t initialSpkDiv(uint32_t sampleRate, uint32_t baseRate) {
+  return ((baseRate + (sampleRate >> 1)) / sampleRate) + (1 << 4);
+}
+
+static void setSpkDiv(uint32_t clockDiv) {
+  *pwmDivPtr = (clockDiv >> 4);
+}
+
+static usb_channel_settings_t spkChSettings = {
+  .ch = &spkCh,
+  .queue = &spk_cmd_q,
+  .idStr = "Spk",
+  .toUsb = false,
+  .debug = true,
+  .baseClock = 125000000,
+  .init = initSpkCh,
+  .initialDiv = initialSpkDiv,
+  .setDiv = setSpkDiv,
+  .open = openSpkCh,
+  .close = closeSpkCh
+};
 
 static void initMicCh() {
 }
 
 static void openMicCh() {
-  for (uint32_t i=0; i<ADC_BUFFER_SIZE_SAMPLES; i++) {
-    dummyBuf[i] = 2048;
-  }
-  dma_channel_set_write_addr(adcDmaCh, dummyBuf, true);
+  tu_fifo_t* ff = tud_audio_get_ep_in_ff();
+  tu_fifo_clear(ff);
+  tud_audio_write(zeroBuf, micCh.ioChunk);
+  dma_channel_set_write_addr(adcDmaCh, micBuf, true);
   adc_run(true);
 }
 
@@ -466,65 +362,85 @@ static void closeMicCh() {
   adc_run(false);
 }
 
-static void setMicChRate(float sampleRate) {
-  float clockDiv = (48000000.0 / (float)sampleRate) - 1.0;
+uint32_t initialMicDiv(uint32_t sampleRate, uint32_t baseRate) {
+  float clockDiv = ((float)baseRate / (float)sampleRate) - 1.0;
   adc_set_clkdiv(clockDiv); // Example: 48 MHz / (999+1) => 48 kHz
+  return 0;
 }
 
-typedef struct {
-  usb_channel_t *ch;
-  QueueHandle_t *queue;
-  bool toUsb;
-  void (*init)(void);
-  void (*setRate)(float);
-  void (*open)(void);
-  void (*close)(void);
-} usb_channel_settings_t;
+void setMicDiv(uint32_t clockDiv) {
+  
+}
 
 static usb_channel_settings_t micChSettings = {
   .ch = &micCh,
-  .queue = &input_cmd_q,
+  .queue = &mic_cmd_q,
+  .idStr = "Spk",
   .toUsb = true,
+  .debug = false,
+  .baseClock = 48000000,
   .init = initMicCh,
-  .setRate = setMicChRate,
+  .initialDiv = initialMicDiv,
+  .setDiv = setMicDiv,
   .open = openMicCh,
   .close = closeMicCh
 };
 
 static void adcDmaHandler() {
-  static uint32_t bufferNr = 0;
+  static uint32_t base = 0;
   BaseType_t taskWoken = pdFALSE;
   ch_cmd_msg_t msg = {
     .cmd = CH_DATA_RECEIVED,
-    .count = ADC_CHUNK * BYTES_PER_SAMPLE,
+    .count = micCh.ioChunk,
     .time = to_us_since_boot(get_absolute_time())
   };
-  uint32_t filledBufferNr = bufferNr;
-  bufferNr++;
-  if (bufferNr>=ADC_BUFFER_COUNT) {
-    bufferNr = 0;
+  uint32_t lastBase = base;
+  if (base == 0) {
+    base = micCh.ioChunk;
+  } else {
+    base = 0;
   }
-  dma_channel_set_write_addr(adcDmaCh, &dummyBuf[bufferNr * ADC_CHUNK], true);
-  xQueueSendToBackFromISR(input_cmd_q, &msg, NULL);
-  xTaskNotifyFromISR(uac2_in_handle, filledBufferNr, eSetValueWithOverwrite, &taskWoken);
-  portYIELD_FROM_ISR(taskWoken);
+  if (micCh.state != AUDIO_IDLE) {
+    dma_channel_set_write_addr(adcDmaCh, &micBuf[base], true);
+    if (xQueueSendToBackFromISR(mic_cmd_q, &msg, NULL) != pdPASS) {
+      micCh.isrCtrlFails++;
+    }
+    xTaskNotifyFromISR(uac2_in_handle, lastBase, eSetValueWithOverwrite, &taskWoken);
+    portYIELD_FROM_ISR(taskWoken);
+  }
   dma_hw->ints0 = 1u << adcDmaCh;
 }
 
 static void uac2InTask(void *pvParameters) {
+  // Set up DMA channel for audio in
+  adcDmaCh = dma_claim_unused_channel(true);
+  dma_channel_config c2 = dma_channel_get_default_config(adcDmaCh);
+  channel_config_set_transfer_data_size(&c2, DMA_SIZE_16);
+  channel_config_set_write_increment(&c2, true);
+  channel_config_set_read_increment(&c2, false);
+  channel_config_set_dreq(&c2, DREQ_ADC);
+
+  dma_channel_configure(
+    adcDmaCh,
+    &c2,
+    micBuf,         // Write address
+    adcDataPtr,     // Read address
+    micCh.ioChunk,  // Words to transfer
+    false           // Start
+  );
+
+  dma_channel_set_irq0_enabled(adcDmaCh, true);
+  dma_channel_set_irq1_enabled(adcDmaCh, false);
+  irq_set_exclusive_handler(DMA_IRQ_0, adcDmaHandler);
+  irq_set_enabled(DMA_IRQ_0, true);
+
   int32_t high = INT16_MIN;
   int32_t low  = INT16_MAX;
   while(true) {
-    uint32_t bufferNr = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    bufferNr += ADC_BUFFER_COUNT >> 1;
-    if (bufferNr>=ADC_BUFFER_COUNT) {
-      bufferNr -= ADC_BUFFER_COUNT;
-    }
-    uint32_t base = bufferNr * ADC_CHUNK;
-    usbDebugInc(19);
-    int32_t sum  = 0;
-    for (uint32_t i=0; i<ADC_CHUNK; i++) {
-      int32_t sample = ((dummyBuf[base + i] & 0x0fff) - 2048) << 4;
+    uint32_t base = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    int32_t sum = 0;
+    for (uint32_t i=0; i<micCh.ioChunk; i++) {
+      int32_t sample = ((micBuf[base + i] & 0x0fff) - 2048) << 4;
       sum += sample;
       if (sample>high) {
         high = sample;
@@ -532,13 +448,21 @@ static void uac2InTask(void *pvParameters) {
       if (sample<low) {
         low = sample;
       }
-      dummyBuf[base + i] = sample;
+      micBuf[base + i] = sample;
     }
-    tud_audio_write(&dummyBuf[base], ADC_CHUNK * BYTES_PER_SAMPLE);
-    usbDebugSet(16, sum/ADC_CHUNK);
-    usbDebugSet(17, low);
-    usbDebugSet(18, high);
+    tud_audio_write(&micBuf[base], micCh.ioChunk << 1);
   }
+}
+
+static void startChannel(usb_channel_t *ch) {
+  ch->isrCtrlFails = 0;
+  ch->usbCtrlFails = 0;
+  ch->receiveCalls = 0;
+  ch->sendCalls = 0;
+  ch->queuedSamples = 0;
+  ch->maxQueuedSamples = -10000;
+  ch->minQueuedSamples =  10000;
+  ch->state = AUDIO_SYNC;
 }
 
 static void chController(void *pvParameters) {
@@ -546,69 +470,82 @@ static void chController(void *pvParameters) {
   QueueHandle_t q = *(p->queue);
   usb_channel_t *ch = p->ch;
   ch_cmd_msg_t cmd;
-  int64_t resetTime = to_us_since_boot(get_absolute_time());
+  //int64_t resetTime = to_us_since_boot(get_absolute_time());
   int64_t recTime = 0;
   int64_t sendTime = 0;
-  int32_t byteRate = AUDIO_SAMPLE_RATE * BYTES_PER_SAMPLE;
-  uint64_t recBytes = 0;
-  uint64_t sendBytes = 0;
+  int32_t sampleRate = AUDIO_SAMPLE_RATE;
+  uint64_t recSamples = 0;
+  uint64_t sendSamples = 0;
   
+  ch->clkDiv = (p->initialDiv)(AUDIO_SAMPLE_RATE, p->baseClock);
+  (p->setDiv)(ch->clkDiv);
   (p->init)();
-  (p->setRate)((float)AUDIO_SAMPLE_RATE);
   while (true) {
     if (xQueueReceive(q, &cmd, portMAX_DELAY) == pdTRUE) {
       switch (cmd.cmd) {
         case CH_SET_RATE:
-          (p->setRate)((float)cmd.count);
-          byteRate = cmd.count * BYTES_PER_SAMPLE;
+          ch->clkDiv = (p->initialDiv)(cmd.count, p->baseClock);
+          (p->setDiv)(ch->clkDiv);
+          sampleRate = cmd.count;
+          (p->close)();
           ch->state = AUDIO_IDLE;
           break;
         case CH_DATA_RECEIVED:
           if (!p->toUsb && ch->state == AUDIO_IDLE) {
             // USB sends data, start channel
-            resetTime = cmd.time - CH_USB_FRAME_TIME;
-            sendTime = 0;
-            recBytes = 0;
-            sendBytes = 0;
+            //resetTime = cmd.time - CH_USB_FRAME_TIME;
+            sendTime = cmd.time;
+            recSamples = 0;
+            sendSamples = 0;
+            startChannel(ch);
             (p->open)();
-            ch->state = AUDIO_SYNC;
           }
-          recTime = cmd.time - resetTime;
-          recBytes += cmd.count;
+          ch->receiveCalls++;
+          recTime = cmd.time;
+          recSamples += cmd.count;
           break;
         case CH_DATA_SENT:
           if (p->toUsb && ch->state == AUDIO_IDLE) {
             // USB wants data, start channel
-            resetTime = cmd.time - CH_USB_FRAME_TIME;
-            recTime = 0;
-            recBytes = 0;
-            sendBytes = 0;
+            //resetTime = cmd.time - CH_USB_FRAME_TIME;
+            recTime = cmd.time;
+            recSamples = 0;
+            sendSamples = 0;
+            startChannel(ch);
             (p->open)();
-            ch->state = AUDIO_SYNC;
           }
-          sendTime = cmd.time - resetTime;
-          sendBytes += cmd.count;
+          ch->sendCalls++;
+          sendTime = cmd.time;
+          sendSamples += cmd.count;
           break;
-      }
-      if (recTime > CH_SYNC_TIME) {
-        usbDebugSet(14, recTime);
-        usbDebugSet(15, recBytes);
-        usbDebugSet(13, (1000000 * recBytes) / recTime);
-      } else {
-        usbDebugInc(12);
-      }
-      if (sendTime > CH_SYNC_TIME) {
-        usbDebugSet(10, sendTime);
-        usbDebugSet(11, sendBytes);
-        usbDebugSet(9, (1000000 * sendBytes) / sendTime);
-      } else {
-        usbDebugInc(8);
       }
       if (ch->state == AUDIO_SYNC && recTime > CH_SYNC_TIME && sendTime > CH_SYNC_TIME) {
         ch->state = AUDIO_RUN;
       }
       if (ch->state != AUDIO_IDLE) {
-
+        int32_t currentLag = recSamples - sendSamples;
+        int32_t estimatedTimeLag = (sampleRate * (sendTime - recTime)) >> 20;
+        ch->queuedSamples = currentLag + estimatedTimeLag;
+        if (cmd.cmd == CH_DATA_RECEIVED && ((ch->receiveCalls) & 0x1f) == 7 || cmd.cmd == CH_DATA_SENT && ((ch->sendCalls) & 0x1f) == 7) {
+          //printf("%li %li %li %li %li\n", currentLag, estimatedTimeLag, samplesInQueue, ch->isrCtrlFails, ch->usbCtrlFails);
+        }
+        if (ch->queuedSamples > ch->maxQueuedSamples) {
+          ch->maxQueuedSamples = ch->queuedSamples;
+        }
+        if (ch->queuedSamples < ch->minQueuedSamples) {
+          ch->minQueuedSamples = ch->queuedSamples;
+        }
+        if (!p->toUsb) {
+          if (ch->queuedSamples < 50) {
+            (p->setDiv)(ch->clkDiv + (1 << 4));
+          } else if (ch->queuedSamples < 100) {
+            (p->setDiv)(ch->clkDiv);
+          } else if (ch->queuedSamples < 150) {
+            (p->setDiv)(ch->clkDiv - (1 << 4));
+          } else {
+            (p->setDiv)(ch->clkDiv - (2 << 4));
+          }
+        }
         if (p->toUsb && recTime > sendTime + CH_SYNC_TIME ||
             !p->toUsb && sendTime > recTime + CH_SYNC_TIME) {
           // USB not active, stop channel
@@ -626,49 +563,7 @@ void createUAC2Handler() {
   pinState = 0;
   gpio_put(DBG_PIN, pinState);
 
-  // pwmDivInt = 10;
-  // pwmDivFrac = 3;
-
-  pwmDiv = PWM_DIV_INIT;
-  pwmDivMax = PWM_DIV_INIT + PWM_DIV_SPAN;
-  pwmDivMin = PWM_DIV_INIT - PWM_DIV_SPAN;
-
   audioSampleRate = AUDIO_SAMPLE_RATE;
-
-  // Set up PWM pin for audio out
-  gpio_set_function(PWM_PIN, GPIO_FUNC_PWM);
-  pwmSlice = pwm_gpio_to_slice_num(PWM_PIN);
-  pwm_set_wrap(pwmSlice, 255);
-  //pwm_set_clkdiv_int_frac(pwmSlice, pwmDivInt, pwmDivFrac);
-  //pwm_set_chan_level(pwmSlice, PWM_CHAN_A, 127);
-  pwmDataPtr = &pwm_hw->slice[pwmSlice].cc;
-  *pwmDataPtr = 16;
-  pwmDivPtr = &pwm_hw->slice[pwmSlice].div;
-  *pwmDivPtr = pwmDiv >> 12;
-  pwm_set_enabled(pwmSlice, true);
-
-  // Set up DMA channel for audio out
-  pwmDmaCh = dma_claim_unused_channel(true);
-  dma_channel_config c1 = dma_channel_get_default_config(pwmDmaCh);
-  channel_config_set_transfer_data_size(&c1, DMA_SIZE_16);
-  channel_config_set_write_increment(&c1, false);
-  channel_config_set_read_increment(&c1, true);
-  channel_config_set_dreq(&c1, DREQ_PWM_WRAP1);
-
-  dma_channel_configure(
-    pwmDmaCh,
-    &c1,
-    pwmDataPtr,       // Write address
-    outBuffer.samples,// Read address
-    SAMPLES_PER_FRAME,
-    false             // Start
-  );
-
-  dma_channel_set_irq0_enabled(pwmDmaCh, false);
-  dma_channel_set_irq1_enabled(pwmDmaCh, true);
-  irq_set_exclusive_handler(DMA_IRQ_1, pwmDmaHandler);
-  irq_set_enabled(DMA_IRQ_1, true);
-
   // Set up ADC pin for audio in
   adc_init();
   adc_gpio_init(ADC_PIN);
@@ -676,28 +571,6 @@ void createUAC2Handler() {
   //adc_set_clkdiv(999.0); // 48 MHz / (999+1) => 48 kHz
   adc_fifo_setup(true, true, 2, false, false);
   adcDataPtr = &adc_hw->fifo;
-
-  // Set up DMA channel for audio in
-  adcDmaCh = dma_claim_unused_channel(true);
-  dma_channel_config c2 = dma_channel_get_default_config(adcDmaCh);
-  channel_config_set_transfer_data_size(&c2, DMA_SIZE_16);
-  channel_config_set_write_increment(&c2, true);
-  channel_config_set_read_increment(&c2, false);
-  channel_config_set_dreq(&c2, DREQ_ADC);
-
-  dma_channel_configure(
-    adcDmaCh,
-    &c2,
-    dummyBuf,         // Write address
-    adcDataPtr,       // Read address
-    ADC_CHUNK,        // Words to transfer
-    false             // Start
-  );
-
-  dma_channel_set_irq0_enabled(adcDmaCh, true);
-  dma_channel_set_irq1_enabled(adcDmaCh, false);
-  irq_set_exclusive_handler(DMA_IRQ_0, adcDmaHandler);
-  irq_set_enabled(DMA_IRQ_0, true);
 
   uac2_out_handle = xTaskCreateStatic(
     uac2OutTask,
@@ -709,6 +582,8 @@ void createUAC2Handler() {
     &uac2_out_taskdef
   );
 
+  vTaskCoreAffinitySet(uac2_out_handle, 1<<0);
+
   uac2_in_handle = xTaskCreateStatic(
     uac2InTask,
     "UAC2 In",
@@ -719,12 +594,31 @@ void createUAC2Handler() {
     &uac2_in_taskdef
   );
 
-  input_cmd_q = xQueueCreateStatic(
+  vTaskCoreAffinitySet(uac2_in_handle, 1<<0);
+
+  spk_cmd_q = xQueueCreateStatic(
     CH_MSG_Q_LEN,
     CH_MSG_SIZE,
-    input_cmd_q_buf,
-    &input_cmd_q_def
+    spk_cmd_q_buf,
+    &spk_cmd_q_def
   ); 
+
+  mic_cmd_q = xQueueCreateStatic(
+    CH_MSG_Q_LEN,
+    CH_MSG_SIZE,
+    mic_cmd_q_buf,
+    &mic_cmd_q_def
+  ); 
+
+  spk_ch_handle = xTaskCreateStatic(
+    chController,
+    "Spk Ch",
+    SPK_CH_STACK_SIZE,
+    &spkChSettings,
+    SPK_CH_TASK_PRIO,
+    spk_ch_stack,
+    &spk_ch_taskdef
+  );
 
   mic_ch_handle = xTaskCreateStatic(
     chController,
@@ -739,75 +633,35 @@ void createUAC2Handler() {
 }
 
 bool tud_audio_rx_done_pre_read_cb(uint8_t rhport, uint16_t n_bytes_received, uint8_t func_id, uint8_t ep_out, uint8_t cur_alt_setting) {
-
-  static uint64_t saveUsbTime;
-  uint64_t currentFrameTime = to_us_since_boot(get_absolute_time());
   pinState = !pinState;
   gpio_put(DBG_PIN, pinState);
-
-  int32_t frameNr = usb_hw->sof_rd;
-  static int32_t lastFrameNr;
-  static int32_t maxFrameSkip;
-
-  if (!uac2OutActive) {
-    uac2OutActive = 1;
-    maxFrameSkip = 0;
-    frameCountCB = 1;
-    byteCountCB = n_bytes_received;
-    firstFrameTimeCB = currentFrameTime;
-    longFramesCB = 0;
-    shortFramesCB = 0;
-    usb16FrameTime = 16000;
-    saveUsbTime = currentFrameTime;
-  } else {
-    // TODO - block this if we recently had a dropout
-    if ((frameCountCB & 0x000fu)==0) {
-      usb16FrameTime = currentFrameTime - saveUsbTime;
-      saveUsbTime = currentFrameTime;
-    }
-
-    frameCountCB++;
-    byteCountCB += n_bytes_received;
-    int64_t timeDiff = currentFrameTime - lastFrameTimeCB;
-    if (timeDiff > 1100) {
-      longFramesCB++;
-    } else if (timeDiff < 900) {
-      shortFramesCB++;
-    }
-    int32_t frameSkip = (frameNr - lastFrameNr) & 0x7ff; // USB frame numbers are 12 bits
-    if (frameSkip>1) {
-      debugInfo[1]++;
-      debugInfo[2] += (frameSkip - 1);
-    }
+  if(controlMsg(spk_cmd_q, CH_DATA_RECEIVED, n_bytes_received >> 1) != pdPASS) {
+    spkCh.usbCtrlFails++;
   }
-  lastFrameTimeCB = currentFrameTime;
-  totalTimeCB = currentFrameTime - firstFrameTimeCB;
-  lastFrameNr = frameNr;
-  debugInfo[7] = frameNr;
   return true;
 }
 
 bool tud_audio_rx_done_post_read_cb(uint8_t rhport, uint16_t n_bytes_received, uint8_t func_id, uint8_t ep_out, uint8_t cur_alt_setting) {
-  // xTaskNotifyGive(uac2_out_handle);
   return true;
 }
 
 bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t func_id, uint8_t ep_in, uint8_t cur_alt_setting) {
-  // tud_audio_write(zeroBuf, BYTES_PER_FRAME);
   tu_fifo_t* ff = tud_audio_get_ep_in_ff();
   if (micCh.state == AUDIO_IDLE) {
     tu_fifo_clear(ff);
-    tud_audio_write(zeroBuf, BYTES_PER_FRAME);
-    tud_audio_write(zeroBuf, BYTES_PER_FRAME);
-  } else {
-    uint16_t count = tu_fifo_count(ff);
-    usbDebugSet(4, count);
+  //   tud_audio_write(zeroBuf, micCh.ioChunk);
+  //   tud_audio_write(zeroBuf, micCh.ioChunk);
+  // } else {
+  //   uint16_t count = tu_fifo_count(ff);
+  //   usbDebugSet(4, count);
   }
   return true;
 }
 
 bool tud_audio_tx_done_post_load_cb(uint8_t rhport, uint16_t n_bytes_copied, uint8_t func_id, uint8_t ep_in, uint8_t cur_alt_setting) {
-  controlMsg(input_cmd_q, CH_DATA_SENT, n_bytes_copied);
+  if(controlMsg(mic_cmd_q, CH_DATA_SENT, n_bytes_copied >> 1) != pdPASS) {
+    micCh.usbCtrlFails++;
+  }
   return true;
 }
 
@@ -824,7 +678,7 @@ static bool tud_audio_clock_get_request(uint8_t rhport, audio_control_request_t 
   {
     if (request->bRequest == AUDIO_CS_REQ_CUR)
     {
-      sendMessageEventf("Clock get current freq %u", audioSampleRate);
+      // sendMessageEventf("Clock get current freq %u", audioSampleRate);
       audio_control_cur_4_t curf = { tu_htole32(audioSampleRate) };
       return tud_audio_buffer_and_schedule_control_xfer(rhport, (tusb_control_request_t const *)request, &curf, sizeof(curf));
     }
@@ -835,7 +689,7 @@ static bool tud_audio_clock_get_request(uint8_t rhport, audio_control_request_t 
         .wNumSubRanges = tu_htole16(1),
         .subrange[0] = { tu_htole32(44100), tu_htole32(AUDIO_SAMPLE_RATE), tu_htole32(1)}
       };
-      sendMessageEventf("Clock get freq range (%d, %d, %d)", (int)rangef.subrange[0].bMin, (int)rangef.subrange[0].bMax, (int)rangef.subrange[0].bRes);
+      // sendMessageEventf("Clock get freq range (%d, %d, %d)", (int)rangef.subrange[0].bMin, (int)rangef.subrange[0].bMax, (int)rangef.subrange[0].bRes);
       return tud_audio_buffer_and_schedule_control_xfer(rhport, (tusb_control_request_t const *)request, &rangef, sizeof(rangef));
     }
   }
@@ -861,7 +715,8 @@ static bool tud_audio_clock_set_request(uint8_t rhport, audio_control_request_t 
     {
       TU_VERIFY(request->wLength == sizeof(audio_control_cur_4_t));
       audioSampleRate = ((audio_control_cur_4_t const *)buf)->bCur;
-      controlMsg(input_cmd_q, CH_SET_RATE, audioSampleRate);
+      controlMsg(mic_cmd_q, CH_SET_RATE, audioSampleRate);
+      controlMsg(spk_cmd_q, CH_SET_RATE, audioSampleRate);
       sendMessageEventf("Clock set current freq %lu", audioSampleRate);
       return true;
     }
@@ -879,7 +734,7 @@ static bool tud_audio_feature_unit_get_request(uint8_t rhport, audio_control_req
   if (request->bControlSelector == AUDIO_FU_CTRL_MUTE && request->bRequest == AUDIO_CS_REQ_CUR)
   {
     audio_control_cur_1_t mute1 = { .bCur = mute[request->bChannelNumber] };
-    sendMessageEventf("Get channel %u mute %d", request->bChannelNumber, mute1.bCur);
+    // sendMessageEventf("Get channel %u mute %d", request->bChannelNumber, mute1.bCur);
     return tud_audio_buffer_and_schedule_control_xfer(rhport, (tusb_control_request_t const *)request, &mute1, sizeof(mute1));
   }
   else if (UAC2_ENTITY_SPK_FEATURE_UNIT && request->bControlSelector == AUDIO_FU_CTRL_VOLUME)
@@ -890,14 +745,14 @@ static bool tud_audio_feature_unit_get_request(uint8_t rhport, audio_control_req
         .wNumSubRanges = tu_htole16(1),
         .subrange[0] = { .bMin = tu_htole16(-VOLUME_CTRL_50_DB), tu_htole16(VOLUME_CTRL_0_DB), tu_htole16(256) }
       };
-      sendMessageEventf("Get channel %u volume range (%d, %d, %u) dB", request->bChannelNumber,
-              range_vol.subrange[0].bMin, range_vol.subrange[0].bMax, range_vol.subrange[0].bRes);
+      // sendMessageEventf("Get channel %u volume range (%d, %d, %u) dB", request->bChannelNumber,
+      //         range_vol.subrange[0].bMin, range_vol.subrange[0].bMax, range_vol.subrange[0].bRes);
       return tud_audio_buffer_and_schedule_control_xfer(rhport, (tusb_control_request_t const *)request, &range_vol, sizeof(range_vol));
     }
     else if (request->bRequest == AUDIO_CS_REQ_CUR)
     {
       audio_control_cur_2_t cur_vol = { .bCur = tu_htole16(volume[request->bChannelNumber]) };
-      sendMessageEventf("Get channel %u volume %d dB", request->bChannelNumber, cur_vol.bCur);
+      // sendMessageEventf("Get channel %u volume %d dB", request->bChannelNumber, cur_vol.bCur);
       return tud_audio_buffer_and_schedule_control_xfer(rhport, (tusb_control_request_t const *)request, &cur_vol, sizeof(cur_vol));
     }
   }
@@ -964,7 +819,6 @@ bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const * p_reque
   uint8_t const itf = tu_u16_low(p_request->wIndex);
   uint8_t const alt = tu_u16_low(p_request->wValue);
   if (itf == ITF_NUM_AUDIO_STREAMING_SPK) {
-    uac2OutActive = 0;
     for (uint32_t i = 2; i<DEBUG_INFO_COUNT; i++) {
       debugInfo[i]=0;
     }

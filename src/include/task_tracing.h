@@ -6,7 +6,9 @@ extern "C" {
 #endif
 
 typedef struct {
-  uint8_t running;
+  uint32_t running;
+  uint32_t core0Start;
+  uint32_t core1Start;
   char * name;
   uint32_t deltaTime;
   uint64_t accumulatedTime;

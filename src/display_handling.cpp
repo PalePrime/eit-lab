@@ -229,6 +229,7 @@ static void displayTimerCallback(TimerHandle_t h) {
 static void displayTask(void *pvParameters) {
   uint32_t count;
 
+  printf("Display start, core %d - thread '%s'\n", get_core_num(), pcTaskGetName(xTaskGetCurrentTaskHandle()));
   display_init();
   xTimerStart(display_ticker, pdMS_TO_TICKS(2 * DISPLAY_TICK_MS));
 
@@ -248,7 +249,11 @@ void createDisplayHandler() {
     NULL,
     DISPLAY_TASK_PRIO,
     display_stack,
-    &display_taskdef);
+    &display_taskdef
+  );
+
+  vTaskCoreAffinitySet(display_handle, 1<<1);
+  printf("Display create, core %d\n", get_core_num());
 
   display_ticker = xTimerCreateStatic("Disp Tick", pdMS_TO_TICKS(DISPLAY_TICK_MS), pdTRUE, (void *) 0, displayTimerCallback, &display_tickdef);
 }

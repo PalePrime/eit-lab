@@ -32,21 +32,23 @@ static void reportTop() {
 
   if (adjTime<100) return;
 
-  printf("Tasks:\n\n");
-  printf("%-12s %15llu %12lu\n\n",
+  printf("%12s %15s %12s %5s %5s %3s\n\n", "Tasks name", "Acc time", "Time", "Core0", "Core1", "%%");
+  for(uint32_t task = 0; task < taskCount; task++) {
+    TaskInfoRecord info = traceGetInfo(task);
+    uint32_t percent = info.deltaTime / adjTime;
+    printf("%-12s %15llu %12lu %5lu %5lu %3lu\n",
+              info.name,
+              info.accumulatedTime,
+              info.deltaTime,
+              info.core0Start,
+              info.core1Start,
+              percent);
+  }
+  printf("%-12s %15llu %12lu\n",
           "Totals",
           totalTime,
           deltaTime);
 
-  for(uint32_t task = 0; task < taskCount; task++) {
-    TaskInfoRecord info = traceGetInfo(task);
-    uint32_t percent = info.deltaTime / adjTime;
-    printf("%-12s %15llu %12lu %3lu\n",
-              info.name,
-              info.accumulatedTime,
-              info.deltaTime,
-              percent);
-  }
 
 }
 
@@ -94,7 +96,7 @@ static void reportMessage() {
 
 static void reportTask(void *pvParameters) {
   uint32_t count;
-  sendRegisterEvent(REPORT_MODE, SET, NO_REPORTING);
+  sendRegisterEvent(REPORT_MODE, SET, TOP_REPORTING);
   while(true)
   {
     count = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -131,5 +133,8 @@ void createReportHandler() {
     &report_taskdef);
   report_ticker = xTimerCreateStatic("Report Tick", pdMS_TO_TICKS(REPORT_TICK_MS), pdTRUE, (void *) 0, statTimerCallback, &report_tickdef);
   xTimerStart(report_ticker, pdMS_TO_TICKS(REPORT_TICK_MS));
+
+  vTaskCoreAffinitySet(report_handle, 1<<1);
+
 }
 

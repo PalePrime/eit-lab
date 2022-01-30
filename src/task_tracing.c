@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 
+#include "hardware/sync.h"
 #include "pico/stdlib.h"
 
 #include "program_config.h"
@@ -38,6 +39,8 @@ void traceDeltaTick() {
   deltaTime = to_us_since_boot(get_absolute_time());
   for (uint32_t index = 0; index<taskCount; index++) {
     taskRecords[index].info.deltaTime = 0;
+    taskRecords[index].info.core0Start = 0;
+    taskRecords[index].info.core1Start = 0;
   }
 }
 
@@ -62,6 +65,11 @@ void traceSwitchIn() {
   uint32_t index = (uint32_t) xTaskGetApplicationTaskTag(NULL);
   // assert(index<taskCount);
   uint64_t now = to_us_since_boot(get_absolute_time());
+  if (get_core_num()) {
+    taskRecords[index].info.core1Start++;
+  } else {
+    taskRecords[index].info.core0Start++;
+  }
   taskRecords[index].lastStart = now;
   taskRecords[index].info.running = true;
 };

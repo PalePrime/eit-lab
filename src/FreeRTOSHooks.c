@@ -71,7 +71,7 @@ void vApplicationStackOverflowHook( TaskHandle_t xTask, char *pcTaskName )
 
 void vApplicationIdleHook( void )
 {
-    static   size_t saveFreeSpace = 0;
+    static   size_t saveFreeSpace = -1;
     volatile size_t xFreeSpace;
 
     xFreeSpace = 0; //xPortGetFreeHeapSize();

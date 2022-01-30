@@ -27,20 +27,21 @@ static volatile uint32_t flowControl;
 static volatile uint32_t flowControlCalls;
 
 void stdio_cdc_write(const char *buf, int len) {
-  int32_t actual = len;
-  int32_t offset = 0;
-  while (actual>0) {
-    int32_t avail = tud_cdc_write_available();
-    int32_t count = MIN(MAX(avail, 64), actual);
-    if (count > 0) {
-      int32_t chunk = tud_cdc_write(buf+offset, count);
-      actual -= chunk;
-      offset += chunk;
-    } else {
-      cdcWrBlock++;
-    }
-    vTaskDelay(pdMS_TO_TICKS(5));
-  }
+  tud_cdc_write(buf, len);
+  // int32_t actual = len;
+  // int32_t offset = 0;
+  // while (actual>0) {
+  //   int32_t avail = tud_cdc_write_available();
+  //   int32_t count = MIN(MAX(avail, 64), actual);
+  //   if (count > 0) {
+  //     int32_t chunk = tud_cdc_write(buf+offset, count);
+  //     actual -= chunk;
+  //     offset += chunk;
+  //   } else {
+  //     cdcWrBlock++;
+  //   }
+  //   vTaskDelay(pdMS_TO_TICKS(5));
+  // }
 
   // if (avail >= actual && actual > 0) {
   //   tud_cdc_write(buf, actual);
@@ -129,7 +130,11 @@ void createCDCHandler() {
     NULL,
     CDC_TASK_PRIO,
     cdc_stack,
-    &cdc_taskdef);
+    &cdc_taskdef
+  );
+
+  vTaskCoreAffinitySet(cdc_handle, 1<<0);
+
 }
 
 void tud_cdc_rx_cb(uint8_t itf)
