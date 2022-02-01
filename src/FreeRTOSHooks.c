@@ -71,16 +71,6 @@ void vApplicationStackOverflowHook( TaskHandle_t xTask, char *pcTaskName )
 
 void vApplicationIdleHook( void )
 {
-    static   size_t saveFreeSpace = -1;
-    volatile size_t xFreeSpace;
-
-    xFreeSpace = 0; //xPortGetFreeHeapSize();
-
-    if( xFreeSpace !=saveFreeSpace )
-    {
-        printf("Core %d - Thread '%s': Free %d\n", get_core_num(), pcTaskGetName(xTaskGetCurrentTaskHandle()), xFreeSpace);
-        saveFreeSpace = xFreeSpace;
-    }
 }
 
 /* configSUPPORT_STATIC_ALLOCATION and configUSE_TIMERS are both set to 1, so the

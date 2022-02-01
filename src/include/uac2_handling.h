@@ -1,32 +1,58 @@
 #ifndef UAC2_HANDLING_H
 #define UAC2_HANDLING_H
 
-#include "bsp/board.h"
+//#include "bsp/board.h"
 #include "tusb.h"
 
 #ifndef AUDIO_SAMPLE_RATE
 #define AUDIO_SAMPLE_RATE     48000
 #endif
 
+#define PWM_CLOCK_RATE     125000000
+#define USB_CLOCK_RATE      48000000
+
+#define DBG_PIN 5
+#define PWM_PIN 2
+#define ADC_PIN 26
+
+// General parameters for sound, USB side
+#define SAMPLES_PER_FRAME   48              // This is AUDIO_SAMPLE_RATE / USB_FRAME_TIME
+#define BYTES_PER_SAMPLE     2              // We only do 16 bit integers over USB
+#define USB_FRAME_TIME    1000              // 1000 ms per USB frame, USB Full Spee only
+#define USB_SYNC_TIME (16 * USB_FRAME_TIME) // Assume we can sync with io side in 16 USB frames
+
+// General parameters for sound, ADC/PWM side
+#define MAX_IO_CHUNK SAMPLES_PER_FRAME
+
+typedef enum {
+  AUDIO_IDLE,
+  AUDIO_SYNC,
+  AUDIO_RUN,
+  AUDIO_ERROR
+} audio_state_t;
+
+inline char* stateString(audio_state_t state) {
+  switch (state) {
+  case AUDIO_IDLE:
+    return "Idle";
+    break;
+  case AUDIO_SYNC:
+    return "Sync";
+    break;
+  case AUDIO_RUN:
+    return "Run";
+    break;
+  default:
+    return "Error";
+    break;
+  }
+}
+
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-enum
-{
-  VOLUME_CTRL_0_DB = 0,
-  VOLUME_CTRL_10_DB = 2560,
-  VOLUME_CTRL_20_DB = 5120,
-  VOLUME_CTRL_30_DB = 7680,
-  VOLUME_CTRL_40_DB = 10240,
-  VOLUME_CTRL_50_DB = 12800,
-  VOLUME_CTRL_60_DB = 15360,
-  VOLUME_CTRL_70_DB = 17920,
-  VOLUME_CTRL_80_DB = 20480,
-  VOLUME_CTRL_90_DB = 23040,
-  VOLUME_CTRL_100_DB = 25600,
-  VOLUME_CTRL_SILENCE = 0x8000,
-};
 
 void createUAC2Handler();
 void reportUSB_UAC2();

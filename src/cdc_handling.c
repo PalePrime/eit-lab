@@ -133,7 +133,7 @@ void createCDCHandler() {
     &cdc_taskdef
   );
 
-  vTaskCoreAffinitySet(cdc_handle, 1<<0);
+  //vTaskCoreAffinitySet(cdc_handle, 1<<0);
 
 }
 

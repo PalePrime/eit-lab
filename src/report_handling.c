@@ -96,7 +96,7 @@ static void reportMessage() {
 
 static void reportTask(void *pvParameters) {
   uint32_t count;
-  sendRegisterEvent(REPORT_MODE, SET, TOP_REPORTING);
+  sendRegisterEvent(REPORT_MODE, SET, NO_REPORTING);
   while(true)
   {
     count = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -134,7 +134,7 @@ void createReportHandler() {
   report_ticker = xTimerCreateStatic("Report Tick", pdMS_TO_TICKS(REPORT_TICK_MS), pdTRUE, (void *) 0, statTimerCallback, &report_tickdef);
   xTimerStart(report_ticker, pdMS_TO_TICKS(REPORT_TICK_MS));
 
-  vTaskCoreAffinitySet(report_handle, 1<<1);
+  //vTaskCoreAffinitySet(report_handle, 1<<1);
 
 }
 

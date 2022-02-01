@@ -9,6 +9,9 @@ add_executable(pa_audio
         report_handling.c
         uac2_handling.c
         task_tracing.c
+        channel_controller.c
+        mic_channel.c
+        spk_channel.c
         )
 
 # add_resource(pa_audio fox.tga)

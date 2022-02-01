@@ -26,15 +26,27 @@
 
 int main(void) {
 
+  // Get USB into reset asap
+  reset_block(RESETS_RESET_USBCTRL_BITS);
+  // Delay to ensure USB host has noticed reset
+  sleep_ms(1000);
+  // Get USB out of reset
+  unreset_block_wait(RESETS_RESET_USBCTRL_BITS);
+
   // Turn off power save mode to improve ADC performance
   gpio_set_function(PWR_SAVE_PIN, GPIO_FUNC_SIO);
   gpio_set_dir(PWR_SAVE_PIN, GPIO_OUT);
   gpio_put(PWR_SAVE_PIN, true);
 
-  // Need this for the debug probe to work, why though?
+  // Need this for the debug probe to work as it connects
+  // via SWD/JTAG to a single core (usually Core 0) and will
+  // reset only that core
   multicore_reset_core1();
+  
+  // Make sure we get printf over serial port if USB fails
   stdout_uart_init();
 
+  // Set upp all FreeRTOS tasks
   createEventHandler();
   createCDCHandler();
   createUAC2Handler();
@@ -42,9 +54,12 @@ int main(void) {
   createReportHandler();
   createDisplayHandler();
 
+  // Initiate time metering on tasks
   traceInit();
 
+  // Get FreeRTOS scheduler going
   vTaskStartScheduler();
-  /* should never reach here */
-  panic_unsupported();  
+  
+  // Scheduler only returns on fatal errors
+  panic("RTOS died");  
 }

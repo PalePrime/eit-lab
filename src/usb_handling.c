@@ -46,7 +46,7 @@ void createUSBHandler() {
     usb_stack,
     &usb_taskdef);
 
-  vTaskCoreAffinitySet(usb_handle, 1<<0);
+  //vTaskCoreAffinitySet(usb_handle, 1<<0);
 
 }
 

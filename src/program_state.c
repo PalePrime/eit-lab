@@ -146,7 +146,7 @@ void createEventHandler() {
     &event_taskdef
   );
 
-  vTaskCoreAffinitySet(event_handle, 1<<1);
+  //vTaskCoreAffinitySet(event_handle, 1<<1);
 
   state_lock = xSemaphoreCreateMutexStatic(&state_lock_buffer);
 }
