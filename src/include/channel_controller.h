@@ -48,6 +48,8 @@ typedef struct {
   uint32_t isrCtrlFails;
   // Updated from USB task
   uint32_t usbCtrlFails;
+  uint32_t overRuns;
+  uint32_t underRuns;
 } usb_channel_state_t;
 
 // This is the interface a channel needs to
@@ -56,7 +58,6 @@ typedef struct {
 typedef struct {
   const char *idStr;
   bool toUsb;
-  bool debug;
   uint32_t baseClock;
   void (*init)(void);
   uint32_t (*initialDiv)(uint32_t, uint32_t);
@@ -80,6 +81,9 @@ typedef struct {
   uint8_t       cmd_q_buf[CH_CTRL_MSG_Q_LEN * CH_CTRL_MSG_SIZE];
 } usb_channel_t;
 
+inline static void cloneChannelState(usb_channel_state_t *dest, const usb_channel_state_t *src) {
+  memcpy(dest, src, sizeof(usb_channel_state_t));
+}
 
 inline static uint32_t controlMsg(usb_channel_t *channel, ch_ctrl_t cmd, uint64_t value) {
   ch_ctrl_msg_t msg = {

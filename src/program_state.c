@@ -47,7 +47,6 @@ uint8_t getMessage(char *buf) {
     xSemaphoreGive(state_lock);
     success = true;
   }
-  buf[0] = 0;
   return success;
 }
 

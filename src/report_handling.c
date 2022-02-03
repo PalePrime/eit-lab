@@ -6,7 +6,8 @@
 #include "task_tracing.h"
 #include "report_handling.h"
 #include "program_state.h"
-#include "usb_handling.h"
+#include "spk_channel.h"
+#include "mic_channel.h"
 
 static StackType_t  report_stack[REPORT_STACK_SIZE];
 static StaticTask_t report_taskdef;
@@ -32,7 +33,7 @@ static void reportTop() {
 
   if (adjTime<100) return;
 
-  printf("%12s %15s %12s %5s %5s %3s\n\n", "Tasks name", "Acc time", "Time", "Core0", "Core1", "%%");
+  printf("%-12s %15s %12s %5s %5s %3s\n\n", "Tasks name", "Acc time", "Time", "Core0", "Core1", "%");
   for(uint32_t task = 0; task < taskCount; task++) {
     TaskInfoRecord info = traceGetInfo(task);
     uint32_t percent = info.deltaTime / adjTime;
@@ -86,6 +87,30 @@ static void reportBuffer() {
     printf("   %s\n", txt);
   }
 
+}
+
+void reportUSB() {
+
+  usb_channel_state_t spkCh; 
+  usb_channel_state_t micCh; 
+
+  cloneChannelState(&spkCh, &spkChannel.state);
+  cloneChannelState(&micCh, &micChannel.state);
+
+  printf("Channel        %15s %15s\n\n", spkChannel.settings->idStr, micChannel.settings->idStr);
+
+  printf("Audio state    %15s %15s\n", stateString(spkCh.state), stateString(micCh.state));
+  
+  printf("Frames in      %15lu %15lu\n",  spkCh.receiveCalls,     micCh.receiveCalls);
+  printf("Frames out     %15lu %15lu\n",  spkCh.sendCalls,        micCh.sendCalls);
+  printf("Q-len          %15li %15li\n",  spkCh.queuedSamples,    micCh.queuedSamples);
+  printf("Q-len min      %15li %15li\n",  spkCh.minQueuedSamples, micCh.minQueuedSamples);
+  printf("Q-len max      %15li %15li\n",  spkCh.maxQueuedSamples, micCh.maxQueuedSamples);
+  printf("ClkDiv         %15lu %15lu\n",  spkCh.clkDiv,           micCh.clkDiv);
+  printf("Underrun       %15lu %15lu\n",  spkCh.underRuns,        micCh.underRuns);
+  printf("Overrun        %15lu %15lu\n",  spkCh.overRuns,         micCh.overRuns);
+  printf("C-fails usb    %15lu %15lu\n",  spkCh.usbCtrlFails,     micCh.usbCtrlFails);
+  printf("C-fails dma    %15lu %15lu\n",  spkCh.isrCtrlFails,     micCh.isrCtrlFails);
 }
 
 static void reportMessage() {

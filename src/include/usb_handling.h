@@ -6,7 +6,6 @@ extern "C" {
 #endif
 
 void createUSBHandler();
-void reportUSB();
 
 #ifdef __cplusplus
 }

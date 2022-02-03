@@ -17,14 +17,14 @@ static TaskHandle_t usb_handle;
 
 static volatile uint64_t usbTaskCalls;
 
-void reportUSB() {
-  printf("USB:\n");
-  printf("USB Task calls:       %15llu\n", usbTaskCalls);
-  printf("\n");
+// void reportUSB() {
+//   printf("USB:\n");
+//   printf("USB Task calls:       %15llu\n", usbTaskCalls);
+//   printf("\n");
 
-  reportUSB_UAC2();
-  reportUSB_CDC();
-}
+//   reportUSB_UAC2();
+//   reportUSB_CDC();
+// }
 
 static void usbTask(void *pvParameters) {
   vTaskDelay(pdMS_TO_TICKS(10));

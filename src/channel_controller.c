@@ -8,6 +8,8 @@ static void startChannel(usb_channel_state_t *state) {
   state->receiveCalls = 0;
   state->sendCalls = 0;
   state->queuedSamples = 0;
+  state->overRuns = 0;
+  state->underRuns = 0;
   state->maxQueuedSamples = -10000;
   state->minQueuedSamples =  10000;
   state->state = AUDIO_SYNC;
@@ -60,8 +62,8 @@ static void chController(void *pvParameters) {
           state->clkDiv = (p->initialDiv)(cmd.count, p->baseClock);
           (p->setDiv)(state->clkDiv);
           sampleRate = cmd.count;
-          //(p->close)();
-          //state->state = AUDIO_IDLE;
+          (p->close)();
+          state->state = AUDIO_IDLE;
           break;
         case CH_DATA_RECEIVED:
           if (!p->toUsb && state->state == AUDIO_IDLE) {
@@ -109,11 +111,11 @@ static void chController(void *pvParameters) {
           state->minQueuedSamples = state->queuedSamples;
         }
         if (!p->toUsb) {
-          if (state->queuedSamples < 50) {
+          if (state->queuedSamples < 100) {
             (p->setDiv)(state->clkDiv + (1 << 4));
-          } else if (state->queuedSamples < 100) {
-            (p->setDiv)(state->clkDiv);
           } else if (state->queuedSamples < 150) {
+            (p->setDiv)(state->clkDiv);
+          } else if (state->queuedSamples < 200) {
             (p->setDiv)(state->clkDiv - (1 << 4));
           } else {
             (p->setDiv)(state->clkDiv - (2 << 4));
@@ -123,7 +125,7 @@ static void chController(void *pvParameters) {
             !p->toUsb && sendTime > recTime + USB_SYNC_TIME) {
           // USB not active, stop channel
           // printf("Ctrl %s w q-handle %x closed\n", p->idStr, ch->cmd_q);
-          //(p->close)();
+          (p->close)();
           state->state = AUDIO_IDLE;
         }
       }

@@ -5,6 +5,10 @@
 extern "C" {
 #endif
 
+#include "channel_controller.h"
+
+usb_channel_t spkChannel;
+
 void createSpkChannel();
 
 #ifdef __cplusplus

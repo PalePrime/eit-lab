@@ -17,7 +17,8 @@
 #include "program_state.h"
 #include "usb_handling.h"
 #include "cdc_handling.h"
-#include "uac2_handling.h"
+#include "spk_channel.h"
+#include "mic_channel.h"
 #include "report_handling.h"
 #include "display_handling.h"
 #include "task_tracing.h"
@@ -49,7 +50,8 @@ int main(void) {
   // Set upp all FreeRTOS tasks
   createEventHandler();
   createCDCHandler();
-  createUAC2Handler();
+  createSpkChannel();
+  createMicChannel();
   createUSBHandler();
   createReportHandler();
   createDisplayHandler();
