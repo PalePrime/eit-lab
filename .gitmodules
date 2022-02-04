@@ -1,6 +1,12 @@
-[submodule "external/tinyusb/tinyusb"]
-	path = external/tinyusb/tinyusb
+[submodule "external/tinyusb"]
+	path = external/tinyusb
 	url = https://github.com/PalePrime/tinyusb.git
 [submodule "external/FreeRTOS/FreeRTOS-Kernel"]
 	path = external/FreeRTOS/FreeRTOS-Kernel
 	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
+[submodule "external/pico-sdk"]
+	path = external/pico-sdk
+	url = https://github.com/raspberrypi/pico-sdk.git
+[submodule "external/pimoroni-pico"]
+	path = external/pimoroni-pico
+	url = https://github.com/pimoroni/pimoroni-pico.git

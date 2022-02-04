@@ -24,7 +24,7 @@ usb_channel_t micChannel;
 
 // These are computed at program start and then remain constant
 static uint   adcDmaCh;
-static volatile uint32_t * adcDataPtr;
+static volatile const uint32_t * adcDataPtr;
 static volatile uint32_t * adcDivPtr;
 
 // Buffer for incoming sound data

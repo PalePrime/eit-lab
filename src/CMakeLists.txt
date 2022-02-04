@@ -14,22 +14,10 @@ add_executable(pa_audio
         mic_channel.c
         )
 
-# add_resource(pa_audio fox.tga)
-
 target_include_directories(pa_audio PRIVATE
         include/
         ${FREERTOS_KERNEL_PATH}/include
         ${FREERTOS_KERNEL_PATH}/${FREERTOS_KERNEL_RP2040_RELATIVE_PATH}/include)
-
-#add_library(my_stuff INTERFACE)
-
-#target_link_libraries(my_stuff INTERFACE
-#        FreeRTOS-Kernel
-#        FreeRTOS-Kernel-Static
-#        tinyusb_device
-#        tinyusb_board
-#        pico_stdlib
-#        pico_multicore)
 
 target_link_libraries(pa_audio
         FreeRTOS-Kernel

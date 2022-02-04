@@ -7,7 +7,7 @@ extern "C" {
 
 #include "channel_controller.h"
 
-usb_channel_t spkChannel;
+extern usb_channel_t spkChannel;
 
 void createSpkChannel();
 
