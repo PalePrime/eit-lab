@@ -141,8 +141,8 @@ void createMicChannel() {
     false           // Start
   );
 
+  dma_hw->ints0 = 1u << adcDmaCh;
   dma_channel_set_irq0_enabled(adcDmaCh, true);
-  dma_channel_set_irq1_enabled(adcDmaCh, false);
   irq_set_exclusive_handler(DMA_IRQ_0, adcDmaHandler);
   irq_set_enabled(DMA_IRQ_0, true);
 

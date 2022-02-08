@@ -67,7 +67,7 @@ static void pwmDmaHandler() {
     dma_channel_abort(pwmDmaCh);
   }
   // Clear the interrupt
-  dma_hw->ints0 = 1u << pwmDmaBufCh;
+  dma_hw->ints1 = 1u << pwmDmaBufCh;
   gpio_put(DBG_PIN, 0);
   // and go back to whatever went on before
 }
@@ -200,7 +200,6 @@ void createSpkChannel() {
     false                                               // Don't start yet
   );
 
-  // dma_channel_set_irq0_enabled(pwmDmaBufCh, false);
   dma_channel_set_irq1_enabled(pwmDmaBufCh, true);      // Use interrupt vector DMA_IRQ_1, the mic channel uses DMA_IRQ_0
   irq_set_exclusive_handler(DMA_IRQ_1, pwmDmaHandler);  // Connect the vector to our ISR
   irq_set_enabled(DMA_IRQ_1, true);                     // and enable interrupts on that vector
