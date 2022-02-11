@@ -45,7 +45,7 @@ static int16_t* nextBuffer = spkBuf[0];
 static void pwmDmaHandler() {
   // When we get here, the second DMA channel (pwmDmaBufCh) has already
   // initiated a transfer to the buffer referenced by nextBuffer so we
-  // should swap buffers and the fill
+  // should swap buffers and then fill it
   if (nextBuffer != spkBuf[0]) {
     gpio_put(DBG_PIN, 1);
     nextBuffer = spkBuf[0];
@@ -110,12 +110,19 @@ static void openSpkCh() {
 static void closeSpkCh() {
 }
 
-uint32_t initialSpkDiv(uint32_t sampleRate, uint32_t baseRate) {
+static void setSpkDiv(uint32_t clockDiv) {
+  *pwmDivPtr = (clockDiv >> 4);
+}
+
+static uint32_t computeSpkDiv(uint32_t sampleRate, uint32_t baseRate) {
   return ((baseRate + (sampleRate >> 1)) / sampleRate) + (1 << 4);
 }
 
-static void setSpkDiv(uint32_t clockDiv) {
-  *pwmDivPtr = (clockDiv >> 4);
+static void setSpkChRate(usb_channel_state_t *state,  uint32_t sampleRate, uint32_t baseRate) {
+  state->sampleRate = sampleRate;
+  uint32_t clkDiv = computeSpkDiv(sampleRate, baseRate);
+  state->clkDiv = clkDiv;
+  setSpkDiv(clkDiv);
 }
 
 static usb_channel_settings_t spkChSettings = {
@@ -123,7 +130,7 @@ static usb_channel_settings_t spkChSettings = {
   .toUsb = false,
   .baseClock = PWM_CLOCK_RATE,
   .init = initSpkCh,
-  .initialDiv = initialSpkDiv,
+  .setRate = setSpkChRate,
   .setDiv = setSpkDiv,
   .open = openSpkCh,
   .close = closeSpkCh
@@ -139,7 +146,7 @@ void createSpkChannel() {
   gpio_put(DBG_PIN, pinState);
 
   // Compute a sane initial value for the pwm clock divider
-  uint16_t pwmDiv = initialSpkDiv(AUDIO_SAMPLE_RATE, PWM_CLOCK_RATE);
+  uint16_t pwmDiv = computeSpkDiv(AUDIO_SAMPLE_RATE, PWM_CLOCK_RATE);
 
   // Set up PWM pin for audio out
   gpio_set_function(PWM_PIN, GPIO_FUNC_PWM);    // Enable pwm on pin

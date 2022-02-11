@@ -10,6 +10,7 @@
 
 #define PWM_CLOCK_RATE     125000000
 #define USB_CLOCK_RATE      48000000
+#define MAX_OVER_SAMPLE 4
 
 #define DBG_PIN 5
 #define PWM_PIN 2
@@ -19,7 +20,7 @@
 #define SAMPLES_PER_FRAME   48              // This is AUDIO_SAMPLE_RATE / USB_FRAME_TIME
 #define BYTES_PER_SAMPLE     2              // We only do 16 bit integers over USB
 #define USB_FRAME_TIME    1000              // 1000 ms per USB frame, USB Full Spee only
-#define USB_SYNC_TIME (16 * USB_FRAME_TIME) // Assume we can sync with io side in 16 USB frames
+#define USB_SYNC_FRAMES     16              // Assume we can sync with io side in 16 USB frames
 
 // General parameters for sound, ADC/PWM side
 #define MAX_IO_CHUNK SAMPLES_PER_FRAME

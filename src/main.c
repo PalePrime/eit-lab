@@ -32,6 +32,11 @@ int main(void) {
   gpio_set_dir(PWR_SAVE_PIN, GPIO_OUT);
   gpio_put(PWR_SAVE_PIN, true);
 
+  // When working with a debug probe connected to core 0 this
+  // is needed to take core 1 to reset state, not required
+  // after power up but won't hurt
+  multicore_reset_core1();
+
   // Make sure we get printf over serial port if USB fails
   stdout_uart_init();
 

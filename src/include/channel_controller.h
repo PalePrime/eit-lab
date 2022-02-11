@@ -44,6 +44,11 @@ typedef struct {
   int32_t maxQueuedSamples;
   uint32_t receiveCalls;
   uint32_t sendCalls;
+  uint32_t sampleRate;
+  uint32_t oversampling;
+  uint32_t undersampling;
+  // Updated from CODEC task
+  uint32_t offset;
   // Updated from ISR
   uint32_t isrCtrlFails;
   // Updated from USB task
@@ -60,7 +65,7 @@ typedef struct {
   bool toUsb;
   uint32_t baseClock;
   void (*init)(void);
-  uint32_t (*initialDiv)(uint32_t, uint32_t);
+  void (*setRate)(usb_channel_state_t *, uint32_t, uint32_t);
   void (*setDiv)(uint32_t);
   void (*open)(void);
   void (*close)(void);
@@ -74,6 +79,7 @@ typedef struct {
   // Fields below are private to the channel controller
   usb_channel_settings_t *settings;
   StackType_t   stack[CH_STACK_SIZE];
+  char          taskname[10];
   StaticTask_t  taskdef;
   TaskHandle_t  handle;
   QueueHandle_t cmd_q;

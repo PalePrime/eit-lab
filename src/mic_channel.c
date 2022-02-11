@@ -27,18 +27,114 @@ static uint   adcDmaCh;
 static volatile const uint32_t * adcDataPtr;
 static volatile uint32_t * adcDivPtr;
 
-// Buffer for incoming sound data
-static int16_t micBuf[2 * MAX_IO_CHUNK];    // Double buffer incoming data from ADC 
-static int16_t zeroBuf[MAX_IO_CHUNK];
+// DMA buffers for incoming sound data
+static int16_t micBuf[2][MAX_OVER_SAMPLE * MAX_IO_CHUNK]; 
+
+// Fifo for unprocessed, incoming sound data
+// Use the fifo implementation from the TinyUSB package
+TU_FIFO_DEF(dataIn, 512, int16_t, false);
+
+// Buffer location of next buffer to use
+static int16_t* nextBuffer = micBuf[0];
+
+// Interrupt Service Routine, get sound data from buffer
+// filled by DMA from the pwm pin
+static void adcDmaHandler() {
+  BaseType_t taskWoken = pdFALSE;
+  // Get data from buffer just filled and swap pointer to next
+  int16_t *buffer = nextBuffer;
+  if (buffer != micBuf[0]) {
+    nextBuffer = micBuf[0];
+  } else {
+    nextBuffer = micBuf[1];
+  }
+  // Unless channel has been marked as idle by our controller
+  if (micChannel.state.state != AUDIO_IDLE) {
+    // 1. Kick off next transfer asap,
+    dma_channel_set_write_addr(adcDmaCh, nextBuffer, true);
+    // 2. inform controller that a chunk of data was sent,
+    if (controlMsgFromISR(&micChannel, CH_DATA_RECEIVED, micChannel.state.ioChunk) != pdPASS) {
+      micChannel.state.isrCtrlFails++;
+    }
+    // 3. transfer captured buffer to the fifo of unprocessed sound data,
+    tu_fifo_write_n(&dataIn, buffer, micChannel.state.ioChunk << micChannel.state.oversampling);
+    // 4. let the codec know, and
+    vTaskNotifyGiveFromISR(mic_codec_handle, &taskWoken);
+    // 5. swap it in if need be
+    portYIELD_FROM_ISR(taskWoken);
+  }
+  // Clear the interrupt
+  dma_hw->ints0 = 1u << adcDmaCh;
+}
+
+static void micCodecTask(void *pvParameters) {
+  int16_t buf[MAX_OVER_SAMPLE * MAX_IO_CHUNK];
+  int32_t avgCount = 0;
+  int32_t avgSum = 0;
+  uint32_t awaitAvg = 2;
+  int32_t currentAvg = 0;
+  while(true) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    // Loop as long as at least one oversampled item is available
+    uint32_t availableSamples = (tu_fifo_count(&dataIn) >> micChannel.state.oversampling);
+    while (availableSamples) {
+      uint32_t count = availableSamples;
+      if (count > MAX_IO_CHUNK) {
+        count = MAX_IO_CHUNK;
+      }
+      tu_fifo_read_n(&dataIn, buf, count << micChannel.state.oversampling);
+      availableSamples -= count;
+      for (uint32_t i=0; i<count; i++) {
+        int32_t sum = 0;
+        for (uint32_t j=0; j<(1 << micChannel.state.oversampling); j++) {
+          int32_t sample = (buf[(i << micChannel.state.oversampling) + j] & 0x0fff);
+          sum += sample;
+          avgCount++;
+          avgSum += sample;
+          if ((avgCount & 0xfff) == 0) {
+            int32_t roundedAvg = (avgSum + 16) >> 4;
+            if (awaitAvg > 0) {
+              awaitAvg--;
+              if (awaitAvg == 0) {
+                currentAvg = roundedAvg;
+              }
+            } else {
+              if (roundedAvg > currentAvg) {
+                currentAvg++;
+              } else if (roundedAvg < currentAvg) {
+                currentAvg--;
+              }
+            }
+            avgSum = 0;
+            avgCount = 0;
+            micChannel.state.offset = (currentAvg + 128) >> 8;
+          }
+        }
+        if (awaitAvg == 0) {
+          // sum = (sum << (8 - micChannel.state.oversampling)) - currentAvg;
+          sum -= (currentAvg >> (8 - micChannel.state.oversampling)) ;
+          // sum = (sum >> 8);
+          sum = (sum >> micChannel.state.oversampling);
+          if (sum > INT16_MAX) {sum = INT16_MAX;}
+          if (sum < INT16_MIN) {sum = INT16_MIN;}
+        } else {
+          sum = 0;
+        }
+        buf[i] = sum;
+      }
+      tud_audio_write(buf, (count << 1));
+    }
+  }
+}
 
 static void initMicCh() {
 }
 
 static void openMicCh() {
-  tu_fifo_t* ff = tud_audio_get_ep_in_ff();
-  tu_fifo_clear(ff);
-  tud_audio_write(zeroBuf, micChannel.state.ioChunk);
-  //dma_channel_set_trans_count(adcDmaCh, micChannel.state.ioChunk, false);
+  // tu_fifo_t* ff = tud_audio_get_ep_in_ff();
+  // tu_fifo_clear(ff);
+  //tud_audio_write(zeroBuf, micChannel.state.ioChunk);
+  dma_channel_set_trans_count(adcDmaCh, micChannel.state.ioChunk << micChannel.state.oversampling, false);
   dma_channel_set_write_addr(adcDmaCh, micBuf, true);
 }
 
@@ -46,14 +142,15 @@ static void closeMicCh() {
   dma_channel_abort(adcDmaCh);
 }
 
-uint32_t initialMicDiv(uint32_t sampleRate, uint32_t baseRate) {
-  float clockDiv = ((float)baseRate / (float)sampleRate) - 1.0;
-  adc_set_clkdiv(clockDiv); // Example: 48 MHz / (999+1) => 48 kHz
-  return 0;
-}
-
 void setMicDiv(uint32_t clockDiv) {
   
+}
+
+void setMicChRate(usb_channel_state_t *state, u_int32_t sampleRate, uint32_t baseRate) {
+  state->sampleRate = sampleRate;
+  float clockDiv = ((float)baseRate / (float)(sampleRate << (state->oversampling))) - 1.0;
+  adc_set_clkdiv(clockDiv);
+
 }
 
 static usb_channel_settings_t micChSettings = {
@@ -63,57 +160,11 @@ static usb_channel_settings_t micChSettings = {
   .toUsb = true,
   .baseClock = USB_CLOCK_RATE,
   .init = initMicCh,
-  .initialDiv = initialMicDiv,
+  .setRate = setMicChRate,
   .setDiv = setMicDiv,
   .open = openMicCh,
   .close = closeMicCh
 };
-
-static void adcDmaHandler() {
-  static uint32_t base = 0;
-  BaseType_t taskWoken = pdFALSE;
-  // ch_ctrl_msg_t msg = {
-  //   .cmd = CH_DATA_RECEIVED,
-  //   .count = micChannel.state.ioChunk,
-  //   .time = to_us_since_boot(get_absolute_time())
-  // };
-  uint32_t lastBase = base;
-  if (base == 0) {
-    base = micChannel.state.ioChunk;
-  } else {
-    base = 0;
-  }
-  if (micChannel.state.state != AUDIO_IDLE) {
-    dma_channel_set_write_addr(adcDmaCh, &micBuf[base], true);
-    if (controlMsgFromISR(&micChannel, CH_DATA_RECEIVED, micChannel.state.ioChunk) != pdPASS) {
-      micChannel.state.isrCtrlFails++;
-    }
-    xTaskNotifyFromISR(mic_codec_handle, lastBase, eSetValueWithOverwrite, &taskWoken);
-    portYIELD_FROM_ISR(taskWoken);
-  }
-  dma_hw->ints0 = 1u << adcDmaCh;
-}
-
-static void micCodecTask(void *pvParameters) {
-  int32_t high = INT16_MIN;
-  int32_t low  = INT16_MAX;
-  while(true) {
-    uint32_t base = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    int32_t sum = 0;
-    for (uint32_t i=0; i<micChannel.state.ioChunk; i++) {
-      int32_t sample = ((micBuf[base + i] & 0x0fff) - 2048) << 4;
-      sum += sample;
-      if (sample>high) {
-        high = sample;
-      }
-      if (sample<low) {
-        low = sample;
-      }
-      micBuf[base + i] = sample;
-    }
-    tud_audio_write(&micBuf[base], micChannel.state.ioChunk << 1);
-  }
-}
 
 void createMicChannel() {
   // Set up ADC pin for audio in
@@ -137,7 +188,7 @@ void createMicChannel() {
     &c2,
     micBuf,         // Write address
     adcDataPtr,     // Read address
-    24,  // Words to transfer
+    24 * 4,  // Words to transfer
     false           // Start
   );
 
@@ -150,7 +201,7 @@ void createMicChannel() {
 
   mic_codec_handle = xTaskCreateStatic(
     micCodecTask,
-    "UAC2 In",
+    "Mic codec",
     MIC_CODEC_STACK_SIZE,
     NULL,
     MIC_CODEC_TASK_PRIO,
@@ -166,8 +217,8 @@ void createMicChannel() {
 }
 
 bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t func_id, uint8_t ep_in, uint8_t cur_alt_setting) {
-  tu_fifo_t* ff = tud_audio_get_ep_in_ff();
   if (micChannel.state.state == AUDIO_IDLE) {
+    tu_fifo_t* ff = tud_audio_get_ep_in_ff();
     tu_fifo_clear(ff);
   //   tud_audio_write(zeroBuf, micCh.ioChunk);
   //   tud_audio_write(zeroBuf, micCh.ioChunk);

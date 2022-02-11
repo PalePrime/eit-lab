@@ -103,6 +103,10 @@ void reportUSB() {
   
   printf("Frames in      %15lu %15lu\n",  spkCh.receiveCalls,     micCh.receiveCalls);
   printf("Frames out     %15lu %15lu\n",  spkCh.sendCalls,        micCh.sendCalls);
+  printf("Sample rate    %15lu %15lu\n",  spkCh.sampleRate,       micCh.sampleRate);
+  printf("Oversampling   %15lu %15lu\n",  spkCh.oversampling,     micCh.oversampling);
+  printf("Undersampling  %15lu %15lu\n",  spkCh.undersampling,    micCh.undersampling);
+  printf("Offset         %15li %15li\n",  spkCh.offset,           micCh.offset);
   printf("Q-len          %15li %15li\n",  spkCh.queuedSamples,    micCh.queuedSamples);
   printf("Q-len min      %15li %15li\n",  spkCh.minQueuedSamples, micCh.minQueuedSamples);
   printf("Q-len max      %15li %15li\n",  spkCh.maxQueuedSamples, micCh.maxQueuedSamples);

@@ -1,3 +1,4 @@
+#include <string.h>
 
 #include "channel_controller.h"
 #include "uac2_handling.h"
@@ -47,21 +48,18 @@ static void chController(void *pvParameters) {
   ch_ctrl_msg_t cmd;
   int64_t recTime = 0;
   int64_t sendTime = 0;
-  int32_t sampleRate = AUDIO_SAMPLE_RATE;
+  //int32_t sampleRate = AUDIO_SAMPLE_RATE;
   uint64_t recSamples = 0;
   uint64_t sendSamples = 0;
   
-  state->clkDiv = (p->initialDiv)(AUDIO_SAMPLE_RATE, p->baseClock);
-  (p->setDiv)(state->clkDiv);
+  (p->setRate)(state, AUDIO_SAMPLE_RATE, p->baseClock);
   (p->init)();
   while (true) {
     if (xQueueReceive(q, &cmd, portMAX_DELAY) == pdTRUE) {
       switch (cmd.cmd) {
         case CH_SET_RATE:
           // printf("Ctrl %s w q-handle %x set rate %x\n", p->idStr, ch->cmd_q, cmd.count);
-          state->clkDiv = (p->initialDiv)(cmd.count, p->baseClock);
-          (p->setDiv)(state->clkDiv);
-          sampleRate = cmd.count;
+          (p->setRate)(state, cmd.count, p->baseClock);
           (p->close)();
           state->state = AUDIO_IDLE;
           break;
@@ -71,6 +69,8 @@ static void chController(void *pvParameters) {
             sendTime = cmd.time;
             recSamples = 0;
             sendSamples = 0;
+            state->oversampling = 1;
+            state->undersampling = 0;
             startChannel(state);
             (p->open)();
           }
@@ -84,6 +84,8 @@ static void chController(void *pvParameters) {
             recTime = cmd.time;
             recSamples = 0;
             sendSamples = 0;
+            state->oversampling = 2;
+            state->undersampling = 0;
             startChannel(state);
             (p->open)();
           }
@@ -95,14 +97,17 @@ static void chController(void *pvParameters) {
           printf("Ctrl %s w q-handle %x bad cmd %x\n", p->idStr, ch->cmd_q, cmd.cmd);
           break;
       }
-      if (state->state == AUDIO_SYNC && recTime > USB_SYNC_TIME && sendTime > USB_SYNC_TIME) {
+      if (state->state == AUDIO_SYNC && 
+           ((p->toUsb  && state->sendCalls    > USB_SYNC_FRAMES) ||
+            (!p->toUsb && state->receiveCalls > USB_SYNC_FRAMES))
+         ) {
         // Should now be in phase and ready for real data
         // printf("Ctrl %s w q-handle %x synced\n", p->idStr, ch->cmd_q);
         state->state = AUDIO_RUN;
       }
       if (state->state != AUDIO_IDLE) {
         int32_t currentLag = recSamples - sendSamples;
-        int32_t estimatedTimeLag = (sampleRate * (sendTime - recTime)) >> 20;
+        int32_t estimatedTimeLag = (state->sampleRate * (sendTime - recTime)) >> 20;
         state->queuedSamples = currentLag + estimatedTimeLag;
         if (state->queuedSamples > state->maxQueuedSamples) {
           state->maxQueuedSamples = state->queuedSamples;
@@ -121,8 +126,8 @@ static void chController(void *pvParameters) {
             (p->setDiv)(state->clkDiv - (2 << 4));
           }
         }
-        if (p->toUsb && recTime > sendTime + USB_SYNC_TIME ||
-            !p->toUsb && sendTime > recTime + USB_SYNC_TIME) {
+        if (p->toUsb && recTime > sendTime + (USB_SYNC_FRAMES * USB_FRAME_TIME) ||
+            !p->toUsb && sendTime > recTime + (USB_SYNC_FRAMES * USB_FRAME_TIME)) {
           // USB not active, stop channel
           // printf("Ctrl %s w q-handle %x closed\n", p->idStr, ch->cmd_q);
           (p->close)();
@@ -139,6 +144,10 @@ void newChannelController(usb_channel_settings_t *channelSettings, usb_channel_t
   channel->state.ioChunk = SAMPLES_PER_FRAME / 2;
   channel->settings = channelSettings;
 
+  uint32_t nLen = strlen(channelSettings->idStr);
+  memcpy(channel->taskname, channelSettings->idStr, nLen);
+  strcpy(&channel->taskname[nLen], " ctrl");
+
   channel->cmd_q = xQueueCreateStatic(
     CH_CTRL_MSG_Q_LEN,
     CH_CTRL_MSG_SIZE,
@@ -148,7 +157,7 @@ void newChannelController(usb_channel_settings_t *channelSettings, usb_channel_t
 
   channel->handle = xTaskCreateStatic(
     chController,
-    "Spk Ch",
+    channel->taskname,
     CH_STACK_SIZE,
     channel,
     CH_TASK_PRIO,
