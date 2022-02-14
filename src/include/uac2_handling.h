@@ -25,32 +25,6 @@
 // General parameters for sound, ADC/PWM side
 #define MAX_IO_CHUNK SAMPLES_PER_FRAME
 
-typedef enum {
-  AUDIO_IDLE,
-  AUDIO_SYNC,
-  AUDIO_RUN,
-  AUDIO_ERROR
-} audio_state_t;
-
-inline char* stateString(audio_state_t state) {
-  switch (state) {
-  case AUDIO_IDLE:
-    return "Idle";
-    break;
-  case AUDIO_SYNC:
-    return "Sync";
-    break;
-  case AUDIO_RUN:
-    return "Run";
-    break;
-  default:
-    return "Error";
-    break;
-  }
-}
-
-
-
 #ifdef __cplusplus
 extern "C" {
 #endif

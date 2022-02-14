@@ -34,7 +34,7 @@ static bool tud_audio_clock_get_request(uint8_t rhport, audio_control_request_t 
       audio_control_range_4_n_t(1) rangef =
       {
         .wNumSubRanges = tu_htole16(1),
-        .subrange[0] = { tu_htole32(44100), tu_htole32(AUDIO_SAMPLE_RATE), tu_htole32(1)}
+        .subrange[0] = { tu_htole32(8000), tu_htole32(AUDIO_SAMPLE_RATE), tu_htole32(1)}
       };
       // sendMessageEventf("Clock get freq range (%d, %d, %d)", (int)rangef.subrange[0].bMin, (int)rangef.subrange[0].bMax, (int)rangef.subrange[0].bRes);
       return tud_audio_buffer_and_schedule_control_xfer(rhport, (tusb_control_request_t const *)request, &rangef, sizeof(rangef));

@@ -11,6 +11,7 @@
 #include "pico/stdlib.h"
 
 #include "program_config.h"
+#include "program_state.h"
 #include "uac2_handling.h"
 #include "mic_channel.h"
 #include "channel_controller.h"
@@ -163,7 +164,8 @@ static usb_channel_settings_t micChSettings = {
   .setRate = setMicChRate,
   .setDiv = setMicDiv,
   .open = openMicCh,
-  .close = closeMicCh
+  .close = closeMicCh,
+  .progStateReg = MIC_AUDIO_STATE
 };
 
 void createMicChannel() {
@@ -172,7 +174,7 @@ void createMicChannel() {
   adc_gpio_init(ADC_PIN);
   adc_select_input(0);
   adc_set_clkdiv(999.0); // 48 MHz / (999+1) => 48 kHz
-  adc_fifo_setup(true, true, 2, false, false);
+  adc_fifo_setup(true, true, 1, false, false);
   adcDataPtr = &adc_hw->fifo;
 
   // Set up DMA channel for audio in

@@ -12,6 +12,7 @@
 #include "pico/stdlib.h"
 
 #include "program_config.h"
+#include "program_state.h"
 #include "uac2_handling.h"
 #include "spk_channel.h"
 
@@ -99,15 +100,18 @@ static void spkCodecTask(void *pvParameters) {
 }
 
 static void initSpkCh() {
-  pwm_set_enabled(pwmSlice, true);
+  //pwm_set_enabled(pwmSlice, true);
 }
 
 static void openSpkCh() {
+  pwm_set_enabled(pwmSlice, true);
   dma_channel_set_trans_count(pwmDmaCh, spkChannel.state.ioChunk, false);
   dma_channel_start(pwmDmaBufCh);
 }
 
 static void closeSpkCh() {
+  dma_channel_abort(pwmDmaCh);
+  pwm_set_enabled(pwmSlice, false);
 }
 
 static void setSpkDiv(uint32_t clockDiv) {
@@ -133,7 +137,8 @@ static usb_channel_settings_t spkChSettings = {
   .setRate = setSpkChRate,
   .setDiv = setSpkDiv,
   .open = openSpkCh,
-  .close = closeSpkCh
+  .close = closeSpkCh,
+  .progStateReg = SPK_AUDIO_STATE
 };
 
 void createSpkChannel() {
@@ -156,7 +161,7 @@ void createSpkChannel() {
   *pwmDataPtr = 16;                             // Start at 50% duty cycle, basically zero amplitude
   pwmDivPtr = &pwm_hw->slice[pwmSlice].div;     // Address controlling our pwn clock
   *pwmDivPtr = pwmDiv >> 4;                     // Set the initial sane value
-  pwm_set_enabled(pwmSlice, true);              // and finally enable output
+  //pwm_set_enabled(pwmSlice, true);              // and finally enable output
   
   // Obtain two unused DMA channels
   pwmDmaCh =    dma_claim_unused_channel(true); // One to actually push data from buffer to pwm

@@ -6,6 +6,7 @@
 #include "queue.h"
 
 #include "program_config.h"
+#include "program_state.h"
 #include "uac2_handling.h"
 
 #include "pico/stdlib.h"
@@ -38,6 +39,7 @@ typedef struct {
   // Updated from controller task
   audio_state_t state;
   uint32_t ioChunk;
+  uint32_t usbChunk;
   uint32_t clkDiv;
   int32_t queuedSamples;
   int32_t minQueuedSamples;
@@ -46,7 +48,6 @@ typedef struct {
   uint32_t sendCalls;
   uint32_t sampleRate;
   uint32_t oversampling;
-  uint32_t undersampling;
   // Updated from CODEC task
   uint32_t offset;
   // Updated from ISR
@@ -69,6 +70,7 @@ typedef struct {
   void (*setDiv)(uint32_t);
   void (*open)(void);
   void (*close)(void);
+  state_register_t progStateReg; 
 } usb_channel_settings_t;
 
 // This represents the channel, i.e. the

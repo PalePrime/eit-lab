@@ -19,41 +19,38 @@ typedef enum {
 } report_mode_t;
 
 typedef enum {
+  AUDIO_IDLE,
+  AUDIO_SYNC,
+  AUDIO_RUN,
+  AUDIO_ERROR
+} audio_state_t;
+
+inline char* stateString(audio_state_t state) {
+  switch (state) {
+  case AUDIO_IDLE:
+    return "Idle";
+    break;
+  case AUDIO_SYNC:
+    return "Sync";
+    break;
+  case AUDIO_RUN:
+    return "Run";
+    break;
+  default:
+    return "Error";
+    break;
+  }
+}
+
+typedef enum {
     REPORT_MODE,
     USB_PORT_STATE,
     STATE_LOCK_MISS,
     STATE_UPDATES,
-/* 
-    CDC_AVAILABLE,
-    CDC_BYTES_IN,
-    CDC_LAST_IN,
-    CDC_RX_CB,
 
-    UAC2_RX_CB,
-    UAC2_BYTES_IN,
-    UAC2_SHORT_FRAME,
-    UAC2_LONG_FRAME,
-
-    UAC2_STATE,
-    UAC2_TOTALBYTES,
-    UAC2_TOTALTIME,
-    UAC2_RATE,
-
-    UAC2_FAILED_TRIG,
-    UAC2_PROCESSED,
-    UAC2_ZERO,
-    UAC2_NON_ZERO,
-
-    UAC2_TRIGS,
-    UAC2_BUFFER_WRAPS,
-    UAC2_TIME_OUT,
-    UAC2_SLACK,
-
-    UAC2_TARGET_SKEW,
-    UAC2_SKEW,
-    UAC2_UPDATES,
-    UAC2_DIFF,
- */
+    MIC_AUDIO_STATE,
+    SPK_AUDIO_STATE,
+    
     LAST_REGISTER_MARKER // Keep at end, used to allocate register storage
 } state_register_t;
 

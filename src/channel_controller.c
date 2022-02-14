@@ -2,8 +2,10 @@
 
 #include "channel_controller.h"
 #include "uac2_handling.h"
+#include "program_state.h"
 
-static void startChannel(usb_channel_state_t *state) {
+static void startChannel(usb_channel_t *ch) {
+  usb_channel_state_t *state = &(ch->state);
   state->isrCtrlFails = 0;
   state->usbCtrlFails = 0;
   state->receiveCalls = 0;
@@ -14,6 +16,7 @@ static void startChannel(usb_channel_state_t *state) {
   state->maxQueuedSamples = -10000;
   state->minQueuedSamples =  10000;
   state->state = AUDIO_SYNC;
+  sendRegisterEvent(ch->settings->progStateReg, SET, AUDIO_SYNC);
 }
 
 /*
@@ -59,9 +62,14 @@ static void chController(void *pvParameters) {
       switch (cmd.cmd) {
         case CH_SET_RATE:
           // printf("Ctrl %s w q-handle %x set rate %x\n", p->idStr, ch->cmd_q, cmd.count);
+          if (state->state != AUDIO_IDLE) {
+            (p->close)();
+            state->state = AUDIO_IDLE;
+            sendRegisterEvent(ch->settings->progStateReg, SET, AUDIO_IDLE);
+          }
           (p->setRate)(state, cmd.count, p->baseClock);
-          (p->close)();
-          state->state = AUDIO_IDLE;
+          state->usbChunk = (uint32_t)cmd.count / (uint32_t)USB_FRAME_TIME;
+          state->ioChunk = (state->usbChunk) >> 1;
           break;
         case CH_DATA_RECEIVED:
           if (!p->toUsb && state->state == AUDIO_IDLE) {
@@ -69,9 +77,8 @@ static void chController(void *pvParameters) {
             sendTime = cmd.time;
             recSamples = 0;
             sendSamples = 0;
-            state->oversampling = 1;
-            state->undersampling = 0;
-            startChannel(state);
+            state->oversampling = 0;
+            startChannel(ch);
             (p->open)();
           }
           state->receiveCalls++;
@@ -84,9 +91,8 @@ static void chController(void *pvParameters) {
             recTime = cmd.time;
             recSamples = 0;
             sendSamples = 0;
-            state->oversampling = 2;
-            state->undersampling = 0;
-            startChannel(state);
+            state->oversampling = 0;
+            startChannel(ch);
             (p->open)();
           }
           state->sendCalls++;
@@ -104,6 +110,7 @@ static void chController(void *pvParameters) {
         // Should now be in phase and ready for real data
         // printf("Ctrl %s w q-handle %x synced\n", p->idStr, ch->cmd_q);
         state->state = AUDIO_RUN;
+        sendRegisterEvent(ch->settings->progStateReg, SET, AUDIO_RUN);
       }
       if (state->state != AUDIO_IDLE) {
         int32_t currentLag = recSamples - sendSamples;
@@ -132,6 +139,7 @@ static void chController(void *pvParameters) {
           // printf("Ctrl %s w q-handle %x closed\n", p->idStr, ch->cmd_q);
           (p->close)();
           state->state = AUDIO_IDLE;
+          sendRegisterEvent(ch->settings->progStateReg, SET, AUDIO_IDLE);
         }
       }
     }
