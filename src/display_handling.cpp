@@ -154,8 +154,8 @@ void display_init() {
 }
 
 void screenUpdate() {
-  // bool holdOff = getRegister(MIC_AUDIO_STATE) != AUDIO_IDLE;
-  if(/* !holdOff && */ !dma_channel_is_busy(dma_channel) && spi_is_writable(spi)) {
+  bool holdOff = getRegister(MIC_AUDIO_STATE) != AUDIO_IDLE;
+  if (!holdOff && !dma_channel_is_busy(dma_channel) && spi_is_writable(spi)) {
     uint8_t r = 0x2C;
     gpio_put(cs, 0);
     gpio_put(dc, 0); // command mode

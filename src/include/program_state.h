@@ -25,7 +25,7 @@ typedef enum {
   AUDIO_ERROR
 } audio_state_t;
 
-inline char* stateString(audio_state_t state) {
+inline const char* stateString(audio_state_t state) {
   switch (state) {
   case AUDIO_IDLE:
     return "Idle";
@@ -50,7 +50,7 @@ typedef enum {
 
     MIC_AUDIO_STATE,
     SPK_AUDIO_STATE,
-    
+
     LAST_REGISTER_MARKER // Keep at end, used to allocate register storage
 } state_register_t;
 

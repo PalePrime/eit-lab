@@ -14,7 +14,6 @@
 #include "program_state.h"
 #include "uac2_handling.h"
 #include "mic_channel.h"
-#include "channel_controller.h"
 
 static StackType_t  mic_codec_stack[MIC_CODEC_STACK_SIZE];
 static StaticTask_t mic_codec_def;
@@ -25,6 +24,7 @@ usb_channel_t micChannel;
 
 // These are computed at program start and then remain constant
 static uint   adcDmaCh;
+static uint   adcDmaBufCh;
 static volatile const uint32_t * adcDataPtr;
 static volatile uint32_t * adcDivPtr;
 
@@ -36,15 +36,15 @@ static int16_t micBuf[2][MAX_OVER_SAMPLE * MAX_IO_CHUNK];
 TU_FIFO_DEF(dataIn, 512, int16_t, false);
 
 // Buffer location of next buffer to use
-static int16_t* nextBuffer = micBuf[0];
+static int16_t* nextBuffer = micBuf[1];
 
 // Interrupt Service Routine, get sound data from buffer
 // filled by DMA from the pwm pin
 static void adcDmaHandler() {
   BaseType_t taskWoken = pdFALSE;
   // Get data from buffer just filled and swap pointer to next
-  int16_t *buffer = nextBuffer;
-  if (buffer != micBuf[0]) {
+  //int16_t *buffer = nextBuffer;
+  if (nextBuffer != micBuf[0]) {
     nextBuffer = micBuf[0];
   } else {
     nextBuffer = micBuf[1];
@@ -52,28 +52,56 @@ static void adcDmaHandler() {
   // Unless channel has been marked as idle by our controller
   if (micChannel.state.state != AUDIO_IDLE) {
     // 1. Kick off next transfer asap,
-    dma_channel_set_write_addr(adcDmaCh, nextBuffer, true);
+    ///dma_channel_set_write_addr(adcDmaCh, nextBuffer, true);
     // 2. inform controller that a chunk of data was sent,
     if (controlMsgFromISR(&micChannel, CH_DATA_RECEIVED, micChannel.state.ioChunk) != pdPASS) {
       micChannel.state.isrCtrlFails++;
     }
     // 3. transfer captured buffer to the fifo of unprocessed sound data,
-    tu_fifo_write_n(&dataIn, buffer, micChannel.state.ioChunk << micChannel.state.oversampling);
+    tu_fifo_write_n(&dataIn, nextBuffer, micChannel.state.ioChunk << micChannel.state.oversampling);
     // 4. let the codec know, and
     vTaskNotifyGiveFromISR(mic_codec_handle, &taskWoken);
     // 5. swap it in if need be
     portYIELD_FROM_ISR(taskWoken);
   }
   // Clear the interrupt
-  dma_hw->ints0 = 1u << adcDmaCh;
+  dma_hw->ints0 = 1u << adcDmaBufCh;
+}
+
+typedef struct {
+  int32_t count;
+  int32_t sum;
+  uint32_t await;
+  int32_t current;
+} running_avg_t;
+
+static inline void updateAvg(running_avg_t *avg, int32_t sample) {
+  avg->count++;
+  avg->sum += sample;
+  if ((avg->count & 0xfff) == 0) {
+    int32_t roundedAvg = (avg->sum + 8) >> 4;
+    if (avg->await > 0) {
+      avg->await--;
+      if (avg->await == 0) {
+        avg->current = roundedAvg;
+      }
+    } else {
+      avg->current += (roundedAvg - avg->current) >> 4;
+      // if (roundedAvg > avg->current) {
+      //   avg->current++;
+      // } else if (roundedAvg < avg->current) {
+      //   avg->current--;
+      // }
+    }
+    avg->sum = 0;
+    avg->count = 0;
+    micChannel.state.offset = (avg->current + 128) >> 8;
+  }
 }
 
 static void micCodecTask(void *pvParameters) {
   int16_t buf[MAX_OVER_SAMPLE * MAX_IO_CHUNK];
-  int32_t avgCount = 0;
-  int32_t avgSum = 0;
-  uint32_t awaitAvg = 2;
-  int32_t currentAvg = 0;
+  running_avg_t avg = {.await = 2};
   while(true) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     // Loop as long as at least one oversampled item is available
@@ -90,36 +118,15 @@ static void micCodecTask(void *pvParameters) {
         for (uint32_t j=0; j<(1 << micChannel.state.oversampling); j++) {
           int32_t sample = (buf[(i << micChannel.state.oversampling) + j] & 0x0fff);
           sum += sample;
-          avgCount++;
-          avgSum += sample;
-          if ((avgCount & 0xfff) == 0) {
-            int32_t roundedAvg = (avgSum + 16) >> 4;
-            if (awaitAvg > 0) {
-              awaitAvg--;
-              if (awaitAvg == 0) {
-                currentAvg = roundedAvg;
-              }
-            } else {
-              if (roundedAvg > currentAvg) {
-                currentAvg++;
-              } else if (roundedAvg < currentAvg) {
-                currentAvg--;
-              }
-            }
-            avgSum = 0;
-            avgCount = 0;
-            micChannel.state.offset = (currentAvg + 128) >> 8;
-          }
+          updateAvg(&avg, sample);
         }
-        if (awaitAvg == 0) {
-          // sum = (sum << (8 - micChannel.state.oversampling)) - currentAvg;
-          sum -= (currentAvg >> (8 - micChannel.state.oversampling)) ;
-          // sum = (sum >> 8);
+        if (avg.await) {
+          sum = 0;
+        } else {
+          sum -= (avg.current >> (8 - micChannel.state.oversampling)) ;
           sum = (sum >> micChannel.state.oversampling);
           if (sum > INT16_MAX) {sum = INT16_MAX;}
           if (sum < INT16_MIN) {sum = INT16_MIN;}
-        } else {
-          sum = 0;
         }
         buf[i] = sum;
       }
@@ -136,7 +143,8 @@ static void openMicCh() {
   // tu_fifo_clear(ff);
   //tud_audio_write(zeroBuf, micChannel.state.ioChunk);
   dma_channel_set_trans_count(adcDmaCh, micChannel.state.ioChunk << micChannel.state.oversampling, false);
-  dma_channel_set_write_addr(adcDmaCh, micBuf, true);
+  //dma_channel_set_write_addr(adcDmaCh, micBuf, true);
+  dma_channel_start(adcDmaCh);
 }
 
 static void closeMicCh() {
@@ -179,23 +187,40 @@ void createMicChannel() {
 
   // Set up DMA channel for audio in
   adcDmaCh = dma_claim_unused_channel(true);
-  dma_channel_config c2 = dma_channel_get_default_config(adcDmaCh);
-  channel_config_set_transfer_data_size(&c2, DMA_SIZE_16);
-  channel_config_set_write_increment(&c2, true);
+  adcDmaBufCh = dma_claim_unused_channel(true);
+
+  dma_channel_config c1 = dma_channel_get_default_config(adcDmaCh);
+  channel_config_set_transfer_data_size(&c1, DMA_SIZE_16);
+  channel_config_set_write_increment(&c1, true);
+  channel_config_set_read_increment(&c1, false);
+  channel_config_set_dreq(&c1, DREQ_ADC);
+  channel_config_set_chain_to(&c1, adcDmaBufCh); 
+
+  dma_channel_configure(
+    adcDmaCh,
+    &c1,
+    micBuf[0],      // Write address
+    adcDataPtr,     // Read address
+    24 * 4,         // Words to transfer
+    false           // Start
+  );
+
+  dma_channel_config c2 = dma_channel_get_default_config(adcDmaBufCh);
+  channel_config_set_transfer_data_size(&c2, DMA_SIZE_32);
+  channel_config_set_write_increment(&c2, false);
   channel_config_set_read_increment(&c2, false);
   channel_config_set_dreq(&c2, DREQ_ADC);
 
   dma_channel_configure(
-    adcDmaCh,
+    adcDmaBufCh,
     &c2,
-    micBuf,         // Write address
-    adcDataPtr,     // Read address
-    24 * 4,  // Words to transfer
-    false           // Start
+    &dma_channel_hw_addr(adcDmaCh)->al2_write_addr_trig,
+    &nextBuffer,
+    1,
+    false
   );
 
-  dma_hw->ints0 = 1u << adcDmaCh;
-  dma_channel_set_irq0_enabled(adcDmaCh, true);
+  dma_channel_set_irq0_enabled(adcDmaBufCh, true);
   irq_set_exclusive_handler(DMA_IRQ_0, adcDmaHandler);
   irq_set_enabled(DMA_IRQ_0, true);
 
