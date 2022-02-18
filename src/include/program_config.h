@@ -5,6 +5,9 @@
 extern "C" {
 #endif
 
+#define USB_CLOCK_RATE      48000000
+#define SYS_CLOCK_RATE     192000000
+
 #define PROGRAM_TASK_CNT 15
 #define DEBUG_BUFFER 1024
 #define DEBUG_INFO_COUNT 20

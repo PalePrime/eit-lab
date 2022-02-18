@@ -64,9 +64,8 @@ typedef struct {
 typedef struct {
   const char *idStr;
   bool toUsb;
-  uint32_t baseClock;
   void (*init)(void);
-  void (*setRate)(usb_channel_state_t *, uint32_t, uint32_t);
+  void (*setRate)(usb_channel_state_t *, uint32_t);
   void (*setDiv)(uint32_t);
   void (*open)(void);
   void (*close)(void);

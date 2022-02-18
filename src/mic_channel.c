@@ -155,9 +155,9 @@ void setMicDiv(uint32_t clockDiv) {
   
 }
 
-void setMicChRate(usb_channel_state_t *state, u_int32_t sampleRate, uint32_t baseRate) {
+void setMicChRate(usb_channel_state_t *state, u_int32_t sampleRate) {
   state->sampleRate = sampleRate;
-  float clockDiv = ((float)baseRate / (float)(sampleRate << (state->oversampling))) - 1.0;
+  float clockDiv = ((float)USB_CLOCK_RATE / (float)(sampleRate << (state->oversampling))) - 1.0;
   adc_set_clkdiv(clockDiv);
 
 }
@@ -167,7 +167,6 @@ static usb_channel_settings_t micChSettings = {
   // .queue = &mic_cmd_q,
   .idStr = "Mic",
   .toUsb = true,
-  .baseClock = USB_CLOCK_RATE,
   .init = initMicCh,
   .setRate = setMicChRate,
   .setDiv = setMicDiv,

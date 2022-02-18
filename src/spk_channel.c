@@ -5,6 +5,7 @@
 #include "tusb.h"
 
 #include "hardware/pwm.h"
+#include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/structs/usb.h"
@@ -100,7 +101,8 @@ static void spkCodecTask(void *pvParameters) {
 }
 
 static void initSpkCh() {
-  //pwm_set_enabled(pwmSlice, true);
+  // maybe move init code here?
+  // however, we don't know which core runs this...
 }
 
 static void openSpkCh() {
@@ -118,13 +120,13 @@ static void setSpkDiv(uint32_t clockDiv) {
   *pwmDivPtr = (clockDiv >> 4);
 }
 
-static uint32_t computeSpkDiv(uint32_t sampleRate, uint32_t baseRate) {
-  return ((baseRate + (sampleRate >> 1)) / sampleRate) + (1 << 4);
+static uint32_t computeSpkDiv(uint32_t sampleRate) {
+  return ((SYS_CLOCK_RATE + (sampleRate >> 1)) / sampleRate) + (1 << 4);
 }
 
-static void setSpkChRate(usb_channel_state_t *state,  uint32_t sampleRate, uint32_t baseRate) {
+static void setSpkChRate(usb_channel_state_t *state,  uint32_t sampleRate) {
   state->sampleRate = sampleRate;
-  uint32_t clkDiv = computeSpkDiv(sampleRate, baseRate);
+  uint32_t clkDiv = computeSpkDiv(sampleRate);
   state->clkDiv = clkDiv;
   setSpkDiv(clkDiv);
 }
@@ -132,7 +134,6 @@ static void setSpkChRate(usb_channel_state_t *state,  uint32_t sampleRate, uint3
 static usb_channel_settings_t spkChSettings = {
   .idStr = "Spk",
   .toUsb = false,
-  .baseClock = PWM_CLOCK_RATE,
   .init = initSpkCh,
   .setRate = setSpkChRate,
   .setDiv = setSpkDiv,
@@ -151,7 +152,7 @@ void createSpkChannel() {
   gpio_put(DBG_PIN, pinState);
 
   // Compute a sane initial value for the pwm clock divider
-  uint16_t pwmDiv = computeSpkDiv(AUDIO_SAMPLE_RATE, PWM_CLOCK_RATE);
+  uint16_t pwmDiv = computeSpkDiv(BASE_SAMPLE_RATE);
 
   // Set up PWM pin for audio out
   gpio_set_function(PWM_PIN, GPIO_FUNC_PWM);    // Enable pwm on pin

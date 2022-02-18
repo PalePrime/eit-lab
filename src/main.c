@@ -14,6 +14,7 @@
 
 #include "hardware/resets.h"
 
+#include "program_config.h"
 #include "program_state.h"
 #include "usb_handling.h"
 #include "cdc_handling.h"
@@ -27,6 +28,8 @@
 
 int main(void) {
 
+  set_sys_clock_khz(SYS_CLOCK_RATE / 1000, true);
+
   // Turn off power save mode to improve ADC performance
   gpio_set_function(PWR_SAVE_PIN, GPIO_FUNC_SIO);
   gpio_set_dir(PWR_SAVE_PIN, GPIO_OUT);
@@ -34,7 +37,7 @@ int main(void) {
 
   // When working with a debug probe connected to core 0 this
   // is needed to take core 1 to reset state, not required
-  // after power up but won't hurt
+  // after hardware reset but won't hurt
   multicore_reset_core1();
 
   // Make sure we get printf over serial port if USB fails

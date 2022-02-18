@@ -269,14 +269,14 @@ enum
 #define CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX                    2         // This value is not required by the driver, it parses this information from the descriptor once the alternate interface is set by the host - we use it for the setup
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX                            1         // This value is not required by the driver, it parses this information from the descriptor once the alternate interface is set by the host - we use it for the setup
 //#define CFG_TUD_AUDIO_EP_SZ_OUT                                       (48 + 1) * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX * CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX      // 48 Samples (48 kHz) x 2 Bytes/Sample x CFG_TUD_AUDIO_N_CHANNELS_TX Channels - the Windows driver always needs an extra sample per channel of space more, otherwise it complains... found by trial and error
-#define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX                          100 //CFG_TUD_AUDIO_EP_SZ_OUT
+#define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX                          200 //CFG_TUD_AUDIO_EP_SZ_OUT
 #define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ                       512 //CFG_TUD_AUDIO_EP_SZ_OUT
 
 #define CFG_TUD_AUDIO_ENABLE_EP_IN                                    1
 #define CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX                    2         // This value is not required by the driver, it parses this information from the descriptor once the alternate interface is set by the host - we use it for the setup
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX                            1         // This value is not required by the driver, it parses this information from the descriptor once the alternate interface is set by the host - we use it for the setup
 // #define CFG_TUD_AUDIO_EP_SZ_IN                                        (48 + 1) * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX * CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX      // 48 Samples (48 kHz) x 2 Bytes/Sample x CFG_TUD_AUDIO_N_CHANNELS_TX Channels - the Windows driver always needs an extra sample per channel of space more, otherwise it complains... found by trial and error
-#define CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX                             100 //CFG_TUD_AUDIO_EP_SZ_IN
+#define CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX                             200 //CFG_TUD_AUDIO_EP_SZ_IN
 #define CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ                          512 //CFG_TUD_AUDIO_EP_SZ_IN
 
 #define CFG_TUD_AUDIO_ENABLE_ENCODING                                 0
