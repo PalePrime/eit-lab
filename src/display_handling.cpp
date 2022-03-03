@@ -124,20 +124,20 @@ void display_init() {
   // adc_gpio_init(PicoExplorer::ADC2 + ADC_BASE_PIN);
 
   // setup motor pins
-  pwm_config motor_pwm_cfg = pwm_get_default_config();
-  pwm_config_set_wrap(&motor_pwm_cfg, 255);
+  // pwm_config motor_pwm_cfg = pwm_get_default_config();
+  // pwm_config_set_wrap(&motor_pwm_cfg, 255);
 
-  pwm_init(pwm_gpio_to_slice_num(MOTOR1N), &motor_pwm_cfg, true);
-  gpio_set_function(MOTOR1N, GPIO_FUNC_PWM);
+  // pwm_init(pwm_gpio_to_slice_num(MOTOR1N), &motor_pwm_cfg, true);
+  // gpio_set_function(MOTOR1N, GPIO_FUNC_PWM);
 
-  pwm_init(pwm_gpio_to_slice_num(MOTOR1P), &motor_pwm_cfg, true);
-  gpio_set_function(MOTOR1P, GPIO_FUNC_PWM);
+  // pwm_init(pwm_gpio_to_slice_num(MOTOR1P), &motor_pwm_cfg, true);
+  // gpio_set_function(MOTOR1P, GPIO_FUNC_PWM);
 
-  pwm_init(pwm_gpio_to_slice_num(MOTOR2N), &motor_pwm_cfg, true);
-  gpio_set_function(MOTOR2N, GPIO_FUNC_PWM);
+  // pwm_init(pwm_gpio_to_slice_num(MOTOR2N), &motor_pwm_cfg, true);
+  // gpio_set_function(MOTOR2N, GPIO_FUNC_PWM);
 
-  pwm_init(pwm_gpio_to_slice_num(MOTOR2P), &motor_pwm_cfg, true);
-  gpio_set_function(MOTOR2P, GPIO_FUNC_PWM);
+  // pwm_init(pwm_gpio_to_slice_num(MOTOR2P), &motor_pwm_cfg, true);
+  // gpio_set_function(MOTOR2P, GPIO_FUNC_PWM);
 
 
   for(int i = 0; i < SHAPE_CNT; i++) {

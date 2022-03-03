@@ -185,7 +185,7 @@ void createSpkChannel() {
   channel_config_set_transfer_data_size(&c1, DMA_SIZE_16);  // Feed 16-bit data to the pwm slice
   channel_config_set_write_increment(&c1, false);           // to the fixed pwm slice data location
   channel_config_set_read_increment(&c1, true);             // while incrementing the buffer address
-  channel_config_set_dreq(&c1, DREQ_PWM_WRAP1);     // repeating each time one pwm cycle completes
+  channel_config_set_dreq(&c1, pwm_get_dreq(pwmSlice));     // repeating each time one pwm cycle completes
   channel_config_set_chain_to(&c1, pwmDmaBufCh);            // and finally trigger the second DMA channel
 
   // Call to actually set up the hardware registers controlling the DMA channel
