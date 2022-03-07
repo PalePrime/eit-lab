@@ -27,15 +27,52 @@ static uint32_t registers[LAST_REGISTER_MARKER];
 
 static uint8_t message[S_BUFFER_SIZE+1];
 
+static menu_item_t top_menu[] = {
+  {.kind = BINARY_ITEM, .text = "Led on",  .reg = LED_ON_STATE},
+  {.kind = BINARY_ITEM, .text = "Display", .reg = UPDATE_DISPLAY}
+};
+
+#define menuSize(m) (sizeof(m) / sizeof(menu_item_t))
+
+static menu_item_t menu_root = {.kind = SUB_MENU_ITEM, .text = "Menu", .parent = &menu_root, .sub_menu = &top_menu[0]};
+
 inline uint32_t getTime() {
   return to_ms_since_boot(get_absolute_time());
 }
 
-// Accessors w/o synchronization for singe 32-bit items, will be accessed atomically anyway
-
+// Accessor w/o synchronization for singe 32-bit items, will be accessed atomically anyway
 inline uint32_t getRegister(state_register_t reg) {
   assert(reg >= 0 && reg < LAST_REGISTER_MARKER);
   return registers[reg];
+}
+
+// Single writer (eventTask) and atomic operation, no locking required
+static inline void setRegister(uint32_t reg, uint32_t value) {
+  assert(reg >= 0 && reg < LAST_REGISTER_MARKER);
+  registers[reg] = value;
+}
+
+static void updateRegister(state_operation_t operation) {
+  uint32_t reg = operation.reg;
+  switch (operation.op_code)
+  {
+  case SET:
+    setRegister(reg, operation.value);
+    break;
+  case ADD:
+    setRegister(reg, registers[reg] + operation.value);
+    break;
+  default:
+    break;
+  }
+}
+
+menu_item_t *getMenuItem() {
+  return (menu_item_t*) registers[MENU_ITEM];
+}
+
+menu_state_t getMenuState() {
+  return (menu_state_t) registers[MENU_STATE];
 }
 
 // Accessors that require a mutex
@@ -50,11 +87,85 @@ uint8_t getMessage(char *buf) {
   return success;
 }
 
+static inline void setMenuState(menu_state_t state) {
+  registers[MENU_STATE] = state;
+}
 
-// Internal code below
+static inline void setMenuItem(menu_item_t *menu) {
+  registers[MENU_ITEM] = (uint32_t) menu;
+  setMenuState(MENU_NAV_STATE);
+}
+
+static void initMenu(menu_item_t menu[], uint32_t size, menu_item_t *parent) {
+  for (uint32_t i=0; i<size; i++) {
+    menu[i].parent = parent;
+    if (i==0) {
+      menu[i].prev = &menu[size-1];
+    } else {
+      menu[i].prev = &menu[i-1];
+    }
+    if (i==size-1) {
+      menu[i].next = &menu[0];
+    } else {
+      menu[i].next = &menu[i+1];
+    }
+  }
+}
+
+static void enterMenu() {
+  menu_item_t *menu = getMenuItem();
+  menu_state_t state = getMenuState();
+  if (state == MENU_NAV_STATE) {
+    if (menu->kind == SUB_MENU_ITEM) {
+      if (menu->sub_menu != NULL) {
+        setMenuItem(menu->sub_menu);
+      }
+    } else {
+      setMenuState(MENU_ENTRY_STATE);
+    }
+  }
+}
+
+static void backMenu() {
+  menu_item_t *menu = getMenuItem();
+  menu_state_t state = getMenuState();
+  if (state == MENU_NAV_STATE) {
+    if (menu->parent != NULL) {
+      setMenuItem(menu->parent);
+    }
+  } else {
+    setMenuState(MENU_NAV_STATE);
+  }
+}
+
+static void nextPrevValue(menu_item_t *menu, bool next) {
+  uint32_t value = getRegister(menu->reg);
+  switch (menu->kind) {
+    case BINARY_ITEM:
+      setRegister(menu->reg, !value);
+      break;
+    
+    default:
+      break;
+  }
+}
+
+static void nextPrevMenu(bool next) {
+  menu_item_t *menu = getMenuItem();
+  menu_state_t state = getMenuState();
+  if (state == MENU_NAV_STATE) {
+    if (next && menu->next != NULL) {
+      setMenuItem(menu->next);
+    } else if (!next && menu->prev != NULL) {
+      setMenuItem(menu->prev);
+    }
+  } else {
+    nextPrevValue(menu, next);
+  }
+}
 
 // Muliple accesses, so needs locking
-void setMessage(s_buffer_t buf) {
+static void setMessage(s_buffer_t buf) {
   assert(buf.size<=S_BUFFER_SIZE);
   if(xSemaphoreTake(state_lock, pdMS_TO_TICKS(1))) {
     memcpy(message, buf.buffer, buf.size);
@@ -65,34 +176,26 @@ void setMessage(s_buffer_t buf) {
   }
 }
 
-// Single writer (this procedure) and atomic operation, no locking required
-void updateRegister(state_operation_t operation) {
-  uint32_t reg = operation.reg;
-  assert(reg >= 0 && reg < LAST_REGISTER_MARKER);
-  switch (operation.op_code)
-  {
-  case SET:
-    registers[reg] = operation.value;
-    break;
-  case ADD:
-    registers[reg] = registers[reg] + operation.value;
-    break;
-  default:
-    break;
-  }
-}
-
-void handleButton(button_info_t button) {
-  switch (button.txt)
-  {
-  case 'A':
-    registers[REPORT_MODE] = TOP_REPORTING;
-    break;
-  case 'B':
-    registers[REPORT_MODE] = USB_REPORTING;
-    break;
-  default:
-    break;
+static void handleButton(button_info_t button) {
+  if (button.down) {
+    switch (button.txt) {
+      case 'A':
+        // registers[REPORT_MODE] = TOP_REPORTING;
+        enterMenu();
+        break;
+      case 'B':
+        // registers[REPORT_MODE] = USB_REPORTING;
+        backMenu();
+        break;
+      case 'X':
+        nextPrevMenu(false);
+        break;
+      case 'Y':
+        nextPrevMenu(true);
+        break;
+      default:
+        break;
+    }
   }
 }
 
@@ -130,6 +233,10 @@ static void eventTask(void *pvParameters) {
 }
 
 void createEventHandler() {
+
+  setMenuItem(&menu_root);
+  initMenu(top_menu, menuSize(top_menu), &menu_root);
+
   event_queue = xQueueCreateStatic(
     EVENT_QUEUE_LENGTH,
     EVENT_MSG_SIZE,
@@ -145,7 +252,7 @@ void createEventHandler() {
     &event_taskdef
   );
 
-  //vTaskCoreAffinitySet(event_handle, 1<<1);
+  vTaskCoreAffinitySet(event_handle, 1<<0);
 
   state_lock = xSemaphoreCreateMutexStatic(&state_lock_buffer);
 }
@@ -158,10 +265,10 @@ void sendMessageEventvf(const char *format, va_list va) {
 }
 
 void sendMessageEventf(const char *format, ...) {
-    va_list va;
-    va_start(va, format);
-    sendMessageEventvf(format, va);
-    va_end(va);
+  va_list va;
+  va_start(va, format);
+  sendMessageEventvf(format, va);
+  va_end(va);
 }
 
 void sendMessageEvent(char *str) {

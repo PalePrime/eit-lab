@@ -202,15 +202,18 @@ void display_loop() {
   }
 
   graphics.set_pen(255, 255, 255);
-  // graphics.text("Time:",    Point(10, 180), 80); graphics.text(std::to_string(getTime()), Point(100, 180), 130);
   getMessage(scratch);
-  graphics.text("Message:", Point(10, 200), 80); graphics.text(std::string(scratch),      Point(100, 200), 130);
-  // sprintf(scratch, "%f", get_adc(0));
-  // graphics.text("ADC0:", Point(10, 220), 80); graphics.text(std::string(scratch),      Point(100, 220), 130);
+  graphics.text("Message:",           Point(20, 180),  80);
+  graphics.text(std::string(scratch), Point(20, 200), 200);
 
-  // update screen
-  // screen.update();
-  // Use our own dma based transfer procedure
+  menu_item_t *menu  = getMenuItem();
+  menu_state_t state = getMenuState();
+  graphics.text("Menu:",              Point(10,  20),  80);
+  if (state == MENU_ENTRY_STATE) {
+    graphics.text("*", Point(12,  40), 10);
+  }
+  graphics.text(std::string(menu->text), Point(20,  40), 200);
+
   screenUpdate();
 
 }
