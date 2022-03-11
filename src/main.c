@@ -16,6 +16,7 @@
 
 #include "program_config.h"
 #include "program_state.h"
+#include "poll_blink_handling.h"
 #include "usb_handling.h"
 #include "cdc_handling.h"
 #include "spk_channel.h"
@@ -45,6 +46,7 @@ int main(void) {
 
   // Set upp all FreeRTOS tasks
   createEventHandler();
+  createPollHandler();
   createCDCHandler();
   createSpkChannel();
   createMicChannel();

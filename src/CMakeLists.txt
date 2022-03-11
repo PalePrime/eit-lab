@@ -4,6 +4,7 @@ add_executable(pa_audio
         usb_descriptors.c
         display_handling.cpp
         program_state.c
+        poll_blink_handling.c
         usb_handling.c
         cdc_handling.c
         report_handling.c
@@ -32,7 +33,7 @@ target_link_libraries(pa_audio
 
 target_compile_definitions(pa_audio PRIVATE
 
-        AUDIO_FREQ_MAX=48000
+        #AUDIO_FREQ_MAX=48000
 
         # This is critical for FreeRTOS, TinyUSB and Pico SDK to play nicely
         # The FreeRTOS port sets priority levels for timer and SVC interrupts to 255 (lowest level)

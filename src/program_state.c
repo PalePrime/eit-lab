@@ -7,13 +7,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include "program_config.h"
 #include "program_state.h"
 
 static StaticQueue_t event_queuedef;
 static uint8_t       event_queuebuffer[EVENT_QUEUE_LENGTH*EVENT_MSG_SIZE];
 static QueueHandle_t event_queue;
-
-#define EVENT_STACK_SIZE configMINIMAL_STACK_SIZE
 
 static StackType_t  event_stack[EVENT_STACK_SIZE];
 static StaticTask_t event_taskdef;
@@ -27,14 +26,31 @@ static uint32_t registers[LAST_REGISTER_MARKER];
 
 static uint8_t message[S_BUFFER_SIZE+1];
 
+static menu_item_value_t boolean_choices[] = {{.label = "On", .value = 1}, {.label = "Off", .value = 0}};
+static menu_item_info_t boolean_info = {
+  .choice_info = {
+    .count = 2,
+    .choices = boolean_choices
+  }
+};
+
+static menu_item_value_t led_choices[] = {{.label = "Auto",  .value = LED_AUTO}, {.label = "Off", .value = LED_OFF},
+                                          {.label = "On",    .value = LED_ON},   {.label = "Blink", .value = LED_BLINK}};
+static menu_item_info_t led_info = {
+  .choice_info = {
+    .count = 4,
+    .choices = led_choices
+  }
+};
+
 static menu_item_t top_menu[] = {
-  {.kind = BINARY_ITEM, .text = "Led on",  .reg = LED_ON_STATE},
-  {.kind = BINARY_ITEM, .text = "Display", .reg = UPDATE_DISPLAY}
+  {.kind = CHOICE_ITEM, .info = &led_info, .text = "Led state", .reg = LED_MAIN_STATE},
+  {.kind = CHOICE_ITEM, .info = &boolean_info, .text = "Display", .reg = DISPLAY_OFF}
 };
 
 #define menuSize(m) (sizeof(m) / sizeof(menu_item_t))
 
-static menu_item_t menu_root = {.kind = SUB_MENU_ITEM, .text = "Menu", .parent = &menu_root, .sub_menu = &top_menu[0]};
+static menu_item_t menu_root = {.kind = SUB_MENU_ITEM, .text = "Menu", .parent = NULL, .sub_menu = &top_menu[0]};
 
 inline uint32_t getTime() {
   return to_ms_since_boot(get_absolute_time());
@@ -71,6 +87,25 @@ menu_item_t *getMenuItem() {
   return (menu_item_t*) registers[MENU_ITEM];
 }
 
+menu_item_t *getMenuItemN(uint32_t n) {
+  menu_item_t *item = (menu_item_t*) registers[MENU_ITEM];
+  while (n>0 && item != NULL) {
+    n--;
+    item = item->parent;
+  }
+  return item;
+}
+
+uint32_t getMenuDepth() {
+  uint32_t n = 0;
+  menu_item_t *item = (menu_item_t*) registers[MENU_ITEM];
+  while (item->parent != NULL) {
+    n++;
+    item = item->parent;
+  }
+  return n;
+}
+
 menu_state_t getMenuState() {
   return (menu_state_t) registers[MENU_STATE];
 }
@@ -87,13 +122,41 @@ uint8_t getMessage(char *buf) {
   return success;
 }
 
-static inline void setMenuState(menu_state_t state) {
-  registers[MENU_STATE] = state;
-}
+static void setMenu(menu_item_t *menu, menu_state_t state) {
+  if (menu == &menu_root || menu == NULL || state == MENU_ROOT_STATE) {
+    registers[MENU_ITEM]    = (uint32_t) &menu_root;
+    registers[MENU_STATE]   = MENU_ROOT_STATE;
+    registers[MENU_COUNT]   = 0;
+    registers[MENU_SELECT]  = 0;
+    registers[MENU_CURRENT] = 0;
+  } else {
+    registers[MENU_ITEM]   = (uint32_t) menu;
+    registers[MENU_STATE]  = state;
+    if (state == MENU_NAV_STATE) {
 
-static inline void setMenuItem(menu_item_t *menu) {
-  registers[MENU_ITEM] = (uint32_t) menu;
-  setMenuState(MENU_NAV_STATE);
+    } else if (state == MENU_ENTRY_STATE) {
+      assert(menu->kind != SUB_MENU_ITEM);
+      uint32_t value = getRegister(menu->reg);
+      switch (menu->kind) {
+        case CHOICE_ITEM:
+          registers[MENU_COUNT] = menu->info->choice_info.count;
+          registers[MENU_SELECT]  = 0;
+          registers[MENU_CURRENT] = 0;
+          for (uint32_t i = 0; i < menu->info->choice_info.count; i++) {
+            if (value == menu->info->choice_info.choices[i].value) {
+              registers[MENU_SELECT]  = i;
+              registers[MENU_CURRENT] = i;
+            }
+          }
+          break;
+        default:
+          registers[MENU_COUNT]   = 0;
+          registers[MENU_SELECT]  = 0;
+          registers[MENU_CURRENT] = 0;
+          break;
+      }
+    }
+  }
 }
 
 static void initMenu(menu_item_t menu[], uint32_t size, menu_item_t *parent) {
@@ -115,14 +178,25 @@ static void initMenu(menu_item_t menu[], uint32_t size, menu_item_t *parent) {
 static void enterMenu() {
   menu_item_t *menu = getMenuItem();
   menu_state_t state = getMenuState();
-  if (state == MENU_NAV_STATE) {
+  if (state == MENU_ROOT_STATE) {
+    setMenu(menu->sub_menu, MENU_NAV_STATE);
+  } else if (state == MENU_NAV_STATE) {
     if (menu->kind == SUB_MENU_ITEM) {
-      if (menu->sub_menu != NULL) {
-        setMenuItem(menu->sub_menu);
-      }
+      setMenu(menu->sub_menu, MENU_NAV_STATE);
     } else {
-      setMenuState(MENU_ENTRY_STATE);
+      setMenu(menu, MENU_ENTRY_STATE);
     }
+  } else {
+    uint32_t value = registers[MENU_SELECT];
+    switch (menu->kind) {
+      case CHOICE_ITEM:
+        value = menu->info->choice_info.choices[value].value;
+        break;
+      default:
+        break;
+    }
+    setRegister(menu->reg, value);
+    setMenu(menu, MENU_ENTRY_STATE);
   }
 }
 
@@ -130,19 +204,27 @@ static void backMenu() {
   menu_item_t *menu = getMenuItem();
   menu_state_t state = getMenuState();
   if (state == MENU_NAV_STATE) {
-    if (menu->parent != NULL) {
-      setMenuItem(menu->parent);
-    }
-  } else {
-    setMenuState(MENU_NAV_STATE);
+    setMenu(menu->parent, MENU_NAV_STATE);
+  } else if (state == MENU_ENTRY_STATE) {
+    setMenu(menu, MENU_NAV_STATE);
   }
 }
 
 static void nextPrevValue(menu_item_t *menu, bool next) {
   uint32_t value = getRegister(menu->reg);
+  uint32_t selected = registers[MENU_SELECT];
+  uint32_t count = registers[MENU_COUNT];
   switch (menu->kind) {
-    case BINARY_ITEM:
-      setRegister(menu->reg, !value);
+    case CHOICE_ITEM:
+      if (next) {
+        selected++;
+      } else {
+        selected--;
+      }
+      if (selected >= count) {
+        selected = 0;
+      }
+      registers[MENU_SELECT] = selected;
       break;
     
     default:
@@ -155,11 +237,11 @@ static void nextPrevMenu(bool next) {
   menu_state_t state = getMenuState();
   if (state == MENU_NAV_STATE) {
     if (next && menu->next != NULL) {
-      setMenuItem(menu->next);
+      setMenu(menu->next, MENU_NAV_STATE);
     } else if (!next && menu->prev != NULL) {
-      setMenuItem(menu->prev);
+      setMenu(menu->prev, MENU_NAV_STATE);
     }
-  } else {
+  } else if (state == MENU_ENTRY_STATE) {
     nextPrevValue(menu, next);
   }
 }
@@ -205,28 +287,26 @@ static void eventTask(void *pvParameters) {
   event_msg_t msg;
   uint8_t str[S_BUFFER_SIZE+1];
 
-  while(true)
-  {
+  while(true) {
     status = xQueueReceive(event_queue, &msg, portMAX_DELAY);
     if (status == pdTRUE) {
       registers[STATE_UPDATES]++;
-      switch (msg.msg_type)
-      {
-      case REGISTER:
-        updateRegister(msg.data.operation);
-        break;
-      case BUTTON:
-        snprintf(str, sizeof(str), "Btn %c %s", msg.data.button_info.txt, msg.data.button_info.down ? "down" : "up");
-        sendMessageEvent(str);
-        handleButton(msg.data.button_info);
-        break;
-      case MESSAGE:
-        setMessage(msg.data.s_buffer);
-        if (getRegister(REPORT_MODE)==NO_REPORTING) {
-          printf("Message: %s\n", message);
-        }
-      default:
-        break;
+      switch (msg.msg_type) {
+        case REGISTER:
+          updateRegister(msg.data.operation);
+          break;
+        case BUTTON:
+          snprintf(str, sizeof(str), "Btn %c %s", msg.data.button_info.txt, msg.data.button_info.down ? "down" : "up");
+          sendMessageEvent(str);
+          handleButton(msg.data.button_info);
+          break;
+        case MESSAGE:
+          setMessage(msg.data.s_buffer);
+          if (getRegister(REPORT_MODE)==NO_REPORTING) {
+            printf("Message: %s\n", message);
+          }
+        default:
+          break;
       }
     }
   }
@@ -234,7 +314,7 @@ static void eventTask(void *pvParameters) {
 
 void createEventHandler() {
 
-  setMenuItem(&menu_root);
+  setMenu(&menu_root, MENU_ROOT_STATE);
   initMenu(top_menu, menuSize(top_menu), &menu_root);
 
   event_queue = xQueueCreateStatic(
@@ -247,7 +327,7 @@ void createEventHandler() {
     "Events",
     EVENT_STACK_SIZE,
     NULL,
-    tskIDLE_PRIORITY + 2,
+    EVENT_TASK_PRIO,
     event_stack,
     &event_taskdef
   );
