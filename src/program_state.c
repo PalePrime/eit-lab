@@ -9,6 +9,9 @@
 #include <stdarg.h>
 #include "program_config.h"
 #include "program_state.h"
+#include "hardware/clocks.h"
+
+#define PWR_SAVE_PIN 23
 
 static StaticQueue_t event_queuedef;
 static uint8_t       event_queuebuffer[EVENT_QUEUE_LENGTH*EVENT_MSG_SIZE];
@@ -24,7 +27,19 @@ static uint32_t state_lock_timeout;
 
 static uint32_t registers[LAST_REGISTER_MARKER];
 
-static uint8_t message[S_BUFFER_SIZE+1];
+static uint8_t  message[S_BUFFER_SIZE+1];
+static uint64_t message_time;
+
+static void update_pwr_smooth(uint32_t smooth) {
+  gpio_put(PWR_SAVE_PIN, smooth);
+}
+
+extern void vPortSetupTimerInterrupt( void );
+
+static void update_sys_clock(uint32_t freq) {
+  set_sys_clock_khz(freq, true);
+  vPortSetupTimerInterrupt();
+}
 
 static menu_item_value_t boolean_choices[] = {{.label = "On", .value = 1}, {.label = "Off", .value = 0}};
 static menu_item_info_t boolean_info = {
@@ -43,9 +58,52 @@ static menu_item_info_t led_info = {
   }
 };
 
+static menu_item_value_t display_choices[] = {{.label = "On",   .value = DISPLAY_ON},  {.label = "Off", .value = DISPLAY_OFF},
+                                              {.label = "Auto", .value = DISPLAY_AUTO}};
+static menu_item_info_t display_info = {
+  .choice_info = {
+    .count = 3,
+    .choices = display_choices
+  }
+};
+
+static menu_item_value_t clock_choices[] = {{.label = " 96 MHz", .value =  96000}, {.label = "125 MHz", .value = 125000},
+                                            {.label = "144 MHz", .value = 144000}, {.label = "192 MHz", .value = 192000}};
+static menu_item_info_t clock_info = {
+  .choice_info = {
+    .count = 4,
+    .choices = clock_choices
+  }
+};
+
+static menu_item_value_t oversample_choices[] = {{.label = "x 1", .value = 0}, {.label = "x 2", .value = 1},
+                                                 {.label = "x 4", .value = 2}};
+static menu_item_info_t oversample_info = {
+  .choice_info = {
+    .count = 3,
+    .choices = oversample_choices
+  }
+};
+
+static menu_item_t general_menu[] = {
+  {.kind = CHOICE_ITEM, .info = &led_info,     .text = "Led state",  .reg = LED_MAIN_STATE},
+  {.kind = CHOICE_ITEM, .info = &boolean_info, .text = "Pwr smooth", .reg = PWR_SMOOTH_STATE, .update = &update_pwr_smooth},
+  {.kind = CHOICE_ITEM, .info = &clock_info,   .text = "Clk freq",   .reg = SYS_CLK_FREQ,     .update = &update_sys_clock},
+  {.kind = CHOICE_ITEM, .info = &display_info, .text = "Display",    .reg = DISPLAY_STATE}
+};
+
+static menu_item_t mic_menu[] = {
+  {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Oversample",  .reg = MIC_OVERSAMPLE}
+};
+
+static menu_item_t spk_menu[] = {
+  {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Oversample",  .reg = SPK_OVERSAMPLE}
+};
+
 static menu_item_t top_menu[] = {
-  {.kind = CHOICE_ITEM, .info = &led_info, .text = "Led state", .reg = LED_MAIN_STATE},
-  {.kind = CHOICE_ITEM, .info = &boolean_info, .text = "Display", .reg = DISPLAY_OFF}
+  {.kind = SUB_MENU_ITEM, .text = "General", .sub_menu = &general_menu[0]},
+  {.kind = SUB_MENU_ITEM, .text = "Mic",     .sub_menu = &mic_menu[0]},
+  {.kind = SUB_MENU_ITEM, .text = "Speaker", .sub_menu = &spk_menu[0]},
 };
 
 #define menuSize(m) (sizeof(m) / sizeof(menu_item_t))
@@ -112,14 +170,14 @@ menu_state_t getMenuState() {
 
 // Accessors that require a mutex
 
-uint8_t getMessage(char *buf) {
-  uint8_t success = false;
+uint64_t getMessage(char *buf) {
+  uint64_t msgTime = 0;
   if(xSemaphoreTake(state_lock, pdMS_TO_TICKS(1))) {
+    msgTime = message_time;
     strcpy(buf, message);
     xSemaphoreGive(state_lock);
-    success = true;
   }
-  return success;
+  return msgTime;
 }
 
 static void setMenu(menu_item_t *menu, menu_state_t state) {
@@ -196,6 +254,9 @@ static void enterMenu() {
         break;
     }
     setRegister(menu->reg, value);
+    if (menu->update != NULL) {
+      menu->update(value);
+    }
     setMenu(menu, MENU_ENTRY_STATE);
   }
 }
@@ -250,6 +311,7 @@ static void nextPrevMenu(bool next) {
 static void setMessage(s_buffer_t buf) {
   assert(buf.size<=S_BUFFER_SIZE);
   if(xSemaphoreTake(state_lock, pdMS_TO_TICKS(1))) {
+    message_time = to_us_since_boot(get_absolute_time());
     memcpy(message, buf.buffer, buf.size);
     message[buf.size] = 0;
     xSemaphoreGive(state_lock);
@@ -260,24 +322,32 @@ static void setMessage(s_buffer_t buf) {
 
 static void handleButton(button_info_t button) {
   if (button.down) {
-    switch (button.txt) {
-      case 'A':
-        // registers[REPORT_MODE] = TOP_REPORTING;
-        enterMenu();
-        break;
-      case 'B':
-        // registers[REPORT_MODE] = USB_REPORTING;
-        backMenu();
-        break;
-      case 'X':
-        nextPrevMenu(false);
-        break;
-      case 'Y':
-        nextPrevMenu(true);
-        break;
-      default:
-        break;
+    if (getRegister(DISPLAY_STATE) == DISPLAY_OFF) {
+      setRegister(DISPLAY_STATE, DISPLAY_ON);
+      setMenu(getMenuItem(), getMenuState());
+    } else if (getRegister(MENU_STATE) == MENU_ROOT_STATE) {
+      enterMenu();
+    } else {
+      switch (button.txt) {
+        case 'A':
+          // registers[REPORT_MODE] = TOP_REPORTING;
+          enterMenu();
+          break;
+        case 'B':
+          // registers[REPORT_MODE] = USB_REPORTING;
+          backMenu();
+          break;
+        case 'X':
+          nextPrevMenu(false);
+          break;
+        case 'Y':
+          nextPrevMenu(true);
+          break;
+        default:
+          break;
+      }
     }
+
   }
 }
 
@@ -296,8 +366,8 @@ static void eventTask(void *pvParameters) {
           updateRegister(msg.data.operation);
           break;
         case BUTTON:
-          snprintf(str, sizeof(str), "Btn %c %s", msg.data.button_info.txt, msg.data.button_info.down ? "down" : "up");
-          sendMessageEvent(str);
+          // snprintf(str, sizeof(str), "Btn %c %s", msg.data.button_info.txt, msg.data.button_info.down ? "down" : "up");
+          // sendMessageEvent(str);
           handleButton(msg.data.button_info);
           break;
         case MESSAGE:
@@ -316,6 +386,17 @@ void createEventHandler() {
 
   setMenu(&menu_root, MENU_ROOT_STATE);
   initMenu(top_menu, menuSize(top_menu), &menu_root);
+  initMenu(general_menu, menuSize(general_menu), &top_menu[0]);
+  initMenu(mic_menu, menuSize(mic_menu), &top_menu[1]);
+  initMenu(spk_menu, menuSize(spk_menu), &top_menu[2]);
+
+  // Prepare to control power save mode to improve ADC performance
+  gpio_set_function(PWR_SAVE_PIN, GPIO_FUNC_SIO);
+  gpio_set_dir(PWR_SAVE_PIN, GPIO_OUT);
+  update_pwr_smooth(false);
+
+  uint32_t sysClock = clock_get_hz(clk_sys);
+  setRegister(SYS_CLK_FREQ, sysClock / 1000);
 
   event_queue = xQueueCreateStatic(
     EVENT_QUEUE_LENGTH,

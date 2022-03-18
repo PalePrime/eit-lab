@@ -121,7 +121,8 @@ static void setSpkDiv(uint32_t clockDiv) {
 }
 
 static uint32_t computeSpkDiv(uint32_t sampleRate) {
-  return ((SYS_CLOCK_RATE + (sampleRate >> 1)) / sampleRate) + (1 << 4);
+  uint32_t sysClock = clock_get_hz(clk_sys);
+  return ((sysClock + (sampleRate >> 1)) / sampleRate) + (1 << 4);
 }
 
 static void setSpkChRate(usb_channel_state_t *state,  uint32_t sampleRate) {
@@ -139,7 +140,8 @@ static usb_channel_settings_t spkChSettings = {
   .setDiv = setSpkDiv,
   .open = openSpkCh,
   .close = closeSpkCh,
-  .progStateReg = SPK_AUDIO_STATE
+  .progStateReg = SPK_AUDIO_STATE,
+  .progOverReg = SPK_OVERSAMPLE
 };
 
 void createSpkChannel() {

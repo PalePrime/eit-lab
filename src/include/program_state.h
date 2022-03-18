@@ -5,32 +5,38 @@
 extern "C" {
 #endif
 
-typedef enum {
+typedef enum usb_port_state_t {
   USB_NOT_MOUNTED = 0,
   USB_MOUNTED,
   USB_SUSPENDED
 } usb_port_state_t;
 
-typedef enum {
+typedef enum report_mode_t {
   NO_REPORTING,
   STATE_REPORTING,
   TOP_REPORTING,
   USB_REPORTING
 } report_mode_t;
 
-typedef enum {
+typedef enum audio_state_t {
   AUDIO_IDLE,
   AUDIO_SYNC,
   AUDIO_RUN,
   AUDIO_ERROR
 } audio_state_t;
 
-typedef enum {
+typedef enum led_state_t {
   LED_AUTO,
   LED_OFF,
   LED_ON,
   LED_BLINK,
 } led_state_t;
+
+typedef enum display_state_t {
+  DISPLAY_ON,
+  DISPLAY_OFF,
+  DISPLAY_AUTO
+} display_state_t;
 
 inline const char* stateString(audio_state_t state) {
   switch (state) {
@@ -49,7 +55,7 @@ inline const char* stateString(audio_state_t state) {
   }
 }
 
-typedef enum {
+typedef enum state_register_t {
   REPORT_MODE,
   USB_PORT_STATE,
   STATE_LOCK_MISS,
@@ -66,22 +72,29 @@ typedef enum {
   MENU_SELECT,
   MENU_CURRENT,
 
-  DISPLAY_OFF,
+  DISPLAY_STATE,
 
   LED_MAIN_STATE,
   LED_DIM_STATE,
   LED_RATE_STATE,
 
+  PWR_SMOOTH_STATE,
+
+  SYS_CLK_FREQ,
+
+  MIC_OVERSAMPLE,
+  SPK_OVERSAMPLE,
+
   LAST_REGISTER_MARKER // Keep at end, used to allocate register storage
 } state_register_t;
 
-typedef enum {
+typedef enum state_op_code_t {
   SET,
   ADD,
   
 } state_op_code_t;
 
-typedef enum {
+typedef enum event_msg_type_t {
   REGISTER,
   BUTTON,
   MESSAGE,
@@ -90,30 +103,30 @@ typedef enum {
 
 #define S_BUFFER_SIZE 64
 
-typedef struct {
+typedef struct s_buffer_t {
   uint8_t size;
   uint8_t partial;
   uint8_t buffer[S_BUFFER_SIZE];
 } s_buffer_t;
 
-typedef struct {
+typedef struct state_operation_t {
   state_register_t reg;
   state_op_code_t  op_code;
   uint32_t value;
 } state_operation_t;
 
-typedef struct {
+typedef struct button_info_t {
   char txt;
   bool down;
 } button_info_t;
 
-typedef union {
+typedef union event_msg_data_t {
   state_operation_t operation;
   button_info_t button_info;
   s_buffer_t s_buffer;
 } event_msg_data_t;
 
-typedef struct {
+typedef struct event_msg_t {
   event_msg_type_t msg_type;
   event_msg_data_t data;
 } event_msg_t;
@@ -156,6 +169,7 @@ typedef struct menu_item_t {
   menu_item_info_t *info;
   const char *text;
   state_register_t reg;
+  void (*update)(uint32_t);
   struct menu_item_t *parent;
   struct menu_item_t *next;
   struct menu_item_t *prev;
@@ -167,7 +181,7 @@ typedef struct menu_item_t {
 
 uint32_t getTime();
 uint32_t getRegister(state_register_t reg);
-uint8_t  getMessage(char *buf);
+uint64_t getMessage(char *buf);
 
 menu_item_t *getMenuItem();
 menu_item_t *getMenuItemN(uint32_t n);

@@ -76,7 +76,7 @@ static void chController(void *pvParameters) {
             sendTime = cmd.time;
             recSamples = 0;
             sendSamples = 0;
-            state->oversampling = 0;
+            state->oversampling = getRegister(ch->settings->progOverReg);
             startChannel(ch);
             (p->open)();
           }
@@ -90,7 +90,7 @@ static void chController(void *pvParameters) {
             recTime = cmd.time;
             recSamples = 0;
             sendSamples = 0;
-            state->oversampling = 0;
+            state->oversampling = getRegister(ch->settings->progOverReg);
             startChannel(ch);
             (p->open)();
           }

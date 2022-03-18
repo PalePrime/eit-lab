@@ -172,7 +172,8 @@ static usb_channel_settings_t micChSettings = {
   .setDiv = setMicDiv,
   .open = openMicCh,
   .close = closeMicCh,
-  .progStateReg = MIC_AUDIO_STATE
+  .progStateReg = MIC_AUDIO_STATE,
+  .progOverReg = MIC_OVERSAMPLE
 };
 
 void createMicChannel() {

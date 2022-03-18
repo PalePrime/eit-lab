@@ -76,8 +76,7 @@ void display_init() {
 }
 
 void screenUpdate() {
-  bool holdOff = getRegister(MIC_AUDIO_STATE) != AUDIO_IDLE;
-  if (!holdOff && !dma_channel_is_busy(dma_channel) && spi_is_writable(spi)) {
+  if (!dma_channel_is_busy(dma_channel) && spi_is_writable(spi)) {
     uint8_t r = 0x2C;
     gpio_put(cs, 0);
     gpio_put(dc, 0); // command mode
@@ -120,9 +119,10 @@ void display_loop() {
   menu_state_t state = getMenuState();
 
   if (state == MENU_ROOT_STATE) {
-    graphics.text("Menu",   Point(5,  60),  40);
-    getMessage(scratch);
-    graphics.text(std::string(scratch), Point(20, 200), 200);
+    uint64_t msgTime = getMessage(scratch);
+    if (to_us_since_boot(get_absolute_time()) - msgTime < 10000000) {
+      graphics.text(std::string(scratch), Point(20, 200), 200);
+    }
   } else {
     graphics.text("Ent",    Point(  5,  62),  40);
     graphics.text("Bck",    Point(  5, 182),  40);
@@ -131,15 +131,15 @@ void display_loop() {
 
     menu_item_t *menu  = getMenuItem();
     if (state == MENU_NAV_STATE) {
-      graphics.text(std::string(menu->parent->text), Point(65,  40), 160);
+      graphics.text(std::string(menu->parent->text), Point(65,  62), 160);
       menu_item_t *first = menu->parent->sub_menu;
       menu_item_t *item  = first;
       uint32_t count = 0;
       while (item != NULL) {
         if (item == menu) {
-          graphics.text(">",    Point(65,  60 + count * 20), 10);
+          graphics.text(">",    Point(65,  82 + count * 20), 10);
         }
-        graphics.text(std::string(item->text), Point(85,  60 + count * 20), 160);
+        graphics.text(std::string(item->text), Point(85,  82 + count * 20), 160);
         count++;
         item = item->next;
         if (item == first) {
@@ -147,16 +147,16 @@ void display_loop() {
         }
       }
     } else {
-      graphics.text(std::string(menu->text), Point(65,  40), 160);
+      graphics.text(std::string(menu->text), Point(65,  62), 160);
       menu_item_info_t *info = menu->info;
       uint32_t value = getRegister(menu->reg);
       for (uint32_t i = 0; i < getRegister(MENU_COUNT); i++) {
         if (i == getRegister(MENU_CURRENT)) {
-          graphics.text("*",    Point(65,  60 + i * 20), 10);
+          graphics.text("*",    Point(65,  82 + i * 20), 10);
         } else if (i == getRegister(MENU_SELECT)) {
-          graphics.text(">",    Point(65,  60 + i * 20), 10);
+          graphics.text(">",    Point(65,  82 + i * 20), 10);
         }
-        graphics.text(std::string(info->choice_info.choices[i].label), Point(85,  60 + i * 20), 160);
+        graphics.text(std::string(info->choice_info.choices[i].label), Point(85,  82 + i * 20), 160);
       }
     }
   }
@@ -177,14 +177,24 @@ static void displayTimerCallback(TimerHandle_t h) {
 }
 
 static void displayTask(void *pvParameters) {
-  uint32_t count;
   display_init();
   xTimerStart(display_ticker, pdMS_TO_TICKS(2 * DISPLAY_TICK_MS));
 
   while(true)
   {
-    count = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    if (count) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    bool holdOff = false;
+    switch (getRegister(DISPLAY_STATE)) {
+      case DISPLAY_OFF:
+        holdOff = true;
+        break;
+      case DISPLAY_AUTO:
+        holdOff = getRegister(MIC_AUDIO_STATE) != AUDIO_IDLE;
+        break;
+      default:
+        break;
+    }
+    if (!holdOff) {
         display_loop();
     }
   }

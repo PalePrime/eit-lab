@@ -70,6 +70,7 @@ typedef struct {
   void (*open)(void);
   void (*close)(void);
   state_register_t progStateReg; 
+  state_register_t progOverReg; 
 } usb_channel_settings_t;
 
 // This represents the channel, i.e. the
