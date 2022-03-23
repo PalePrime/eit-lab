@@ -85,6 +85,16 @@ static menu_item_info_t oversample_info = {
   }
 };
 
+static menu_item_value_t mask_choices[] = {{.label = "12 bits", .value = 0xffff}, {.label = " 8 bits", .value = 0xfff0},
+                                           {.label = " 6 bits", .value = 0xffc0}, {.label = " 4 bits", .value = 0xff00},
+                                           {.label = " 3 bits", .value = 0xfe00}, {.label = " 2 bits", .value = 0xfc00}};
+static menu_item_info_t mask_info = {
+  .choice_info = {
+    .count = 6,
+    .choices = mask_choices
+  }
+};
+
 static menu_item_t general_menu[] = {
   {.kind = CHOICE_ITEM, .info = &led_info,     .text = "Led state",  .reg = LED_MAIN_STATE},
   {.kind = CHOICE_ITEM, .info = &boolean_info, .text = "Pwr smooth", .reg = PWR_SMOOTH_STATE, .update = &update_pwr_smooth},
@@ -93,11 +103,15 @@ static menu_item_t general_menu[] = {
 };
 
 static menu_item_t mic_menu[] = {
-  {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Oversample",  .reg = MIC_OVERSAMPLE}
+  {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Oversample",  .reg = MIC_OVERSAMPLE},
+  {.kind = CHOICE_ITEM, .info = &mask_info,       .text = "AD Bits",     .reg = MIC_BITMASK},
+  {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Pre-amplify", .reg = MIC_AMPLIFY},
+  {.kind = CHOICE_ITEM, .info = &boolean_info,    .text = "Auto zero",   .reg = MIC_AUTOZERO}
 };
 
 static menu_item_t spk_menu[] = {
-  {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Oversample",  .reg = SPK_OVERSAMPLE}
+  {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Oversample",  .reg = SPK_OVERSAMPLE},
+  {.kind = CHOICE_ITEM, .info = &mask_info,       .text = "DA Bits",     .reg = SPK_BITMASK}
 };
 
 static menu_item_t top_menu[] = {
@@ -397,6 +411,9 @@ void createEventHandler() {
 
   uint32_t sysClock = clock_get_hz(clk_sys);
   setRegister(SYS_CLK_FREQ, sysClock / 1000);
+
+  setRegister(MIC_BITMASK, 0xffff);
+  setRegister(SPK_BITMASK, 0xffff);
 
   event_queue = xQueueCreateStatic(
     EVENT_QUEUE_LENGTH,

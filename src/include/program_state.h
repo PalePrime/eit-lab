@@ -83,7 +83,11 @@ typedef enum state_register_t {
   SYS_CLK_FREQ,
 
   MIC_OVERSAMPLE,
+  MIC_BITMASK,
+  MIC_AMPLIFY,
+  MIC_AUTOZERO,
   SPK_OVERSAMPLE,
+  SPK_BITMASK,
 
   LAST_REGISTER_MARKER // Keep at end, used to allocate register storage
 } state_register_t;

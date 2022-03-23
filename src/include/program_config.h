@@ -6,11 +6,10 @@ extern "C" {
 #endif
 
 #define USB_CLOCK_RATE      48000000
-//#define SYS_CLOCK_RATE     125000000
 
 #define PROGRAM_TASK_CNT 15
 #define DEBUG_BUFFER 1024
-#define DEBUG_INFO_COUNT 20
+//#define DEBUG_INFO_COUNT 20
 
 #define EVENT_STACK_SIZE configMINIMAL_STACK_SIZE
 #define EVENT_TASK_PRIO tskIDLE_PRIORITY + 2
@@ -41,10 +40,6 @@ extern "C" {
 #define DISPLAY_STACK_SIZE     (3*configMINIMAL_STACK_SIZE)
 #define DISPLAY_TASK_PRIO tskIDLE_PRIORITY + 1
 #define DISPLAY_TICK_MS  100
-
-// void usbDebugInc(uint32_t index);
-// void usbDebugSet(uint32_t index, int64_t value);
-// void usbDebugMax(uint32_t index, int64_t value);
 
 #ifdef __cplusplus
 }

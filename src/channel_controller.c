@@ -4,19 +4,31 @@
 #include "uac2_handling.h"
 #include "program_state.h"
 
+static inline uint32_t getStateItem(state_register_t reg, uint32_t oterwise) {
+  if (reg) {
+    return getRegister(reg);
+  } else {
+    return oterwise;
+  }
+}
+
 static void startChannel(usb_channel_t *ch) {
   usb_channel_state_t *state = &(ch->state);
-  state->isrCtrlFails = 0;
-  state->usbCtrlFails = 0;
-  state->receiveCalls = 0;
-  state->sendCalls = 0;
-  state->queuedSamples = 0;
-  state->overRuns = 0;
-  state->underRuns = 0;
+  state->oversampling     =  getStateItem(ch->settings->overReg, 0);
+  state->autozero         =  getStateItem(ch->settings->autoZeroReg, 0);
+  state->samplemask       =  getStateItem(ch->settings->maskReg, 0xFFFF);
+  state->amplify          =  getStateItem(ch->settings->amplReg, 0);
+  state->isrCtrlFails     =  0;
+  state->usbCtrlFails     =  0;
+  state->receiveCalls     =  0;
+  state->sendCalls        =  0;
+  state->queuedSamples    =  0;
+  state->overRuns         =  0;
+  state->underRuns        =  0;
   state->maxQueuedSamples = -10000;
   state->minQueuedSamples =  10000;
-  state->state = AUDIO_SYNC;
-  sendRegisterEvent(ch->settings->progStateReg, SET, AUDIO_SYNC);
+  state->state            = AUDIO_SYNC;
+  sendRegisterEvent(ch->settings->stateReg, SET, AUDIO_SYNC);
 }
 
 /*
@@ -64,11 +76,11 @@ static void chController(void *pvParameters) {
           if (state->state != AUDIO_IDLE) {
             (p->close)();
             state->state = AUDIO_IDLE;
-            sendRegisterEvent(ch->settings->progStateReg, SET, AUDIO_IDLE);
+            sendRegisterEvent(ch->settings->stateReg, SET, AUDIO_IDLE);
           }
           (p->setRate)(state, cmd.count);
           state->usbChunk = (uint32_t)cmd.count / (uint32_t)USB_FRAME_TIME;
-          state->ioChunk = ((state->usbChunk) >> 1) + 5;
+          state->ioChunk = state->usbChunk;
           break;
         case CH_DATA_RECEIVED:
           if (!p->toUsb && state->state == AUDIO_IDLE) {
@@ -76,7 +88,6 @@ static void chController(void *pvParameters) {
             sendTime = cmd.time;
             recSamples = 0;
             sendSamples = 0;
-            state->oversampling = getRegister(ch->settings->progOverReg);
             startChannel(ch);
             (p->open)();
           }
@@ -90,7 +101,6 @@ static void chController(void *pvParameters) {
             recTime = cmd.time;
             recSamples = 0;
             sendSamples = 0;
-            state->oversampling = getRegister(ch->settings->progOverReg);
             startChannel(ch);
             (p->open)();
           }
@@ -109,7 +119,7 @@ static void chController(void *pvParameters) {
         // Should now be in phase and ready for real data
         // printf("Ctrl %s w q-handle %x synced\n", p->idStr, ch->cmd_q);
         state->state = AUDIO_RUN;
-        sendRegisterEvent(ch->settings->progStateReg, SET, AUDIO_RUN);
+        sendRegisterEvent(ch->settings->stateReg, SET, AUDIO_RUN);
       }
       if (state->state != AUDIO_IDLE) {
         int32_t currentLag = recSamples - sendSamples;
@@ -132,13 +142,13 @@ static void chController(void *pvParameters) {
             (p->setDiv)(state->clkDiv - (2 << 4));
           }
         }
-        if (p->toUsb && recTime > sendTime + (USB_SYNC_FRAMES * USB_FRAME_TIME) ||
-            !p->toUsb && sendTime > recTime + (USB_SYNC_FRAMES * USB_FRAME_TIME)) {
+        if (p->toUsb && recTime > sendTime + (USB_LOSS_FRAMES * USB_FRAME_TIME) ||
+            !p->toUsb && sendTime > recTime + (USB_LOSS_FRAMES * USB_FRAME_TIME)) {
           // USB not active, stop channel
           // printf("Ctrl %s w q-handle %x closed\n", p->idStr, ch->cmd_q);
           (p->close)();
           state->state = AUDIO_IDLE;
-          sendRegisterEvent(ch->settings->progStateReg, SET, AUDIO_IDLE);
+          sendRegisterEvent(ch->settings->stateReg, SET, AUDIO_IDLE);
         }
       }
     }

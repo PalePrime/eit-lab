@@ -4,7 +4,7 @@
 //#include "bsp/board.h"
 #include "tusb.h"
 
-#define MIN_SAMPLE_RATE         4000
+#define MIN_SAMPLE_RATE         1000
 #define BASE_SAMPLE_RATE       48000
 #define MAX_SAMPLE_RATE        96000
 
@@ -19,6 +19,7 @@
 #define USB_FRAME_TIME          1000        // 1000 ms per USB frame, USB Full Speed only
 #define MAX_SAMPLES_PER_FRAME   (MAX_SAMPLE_RATE / USB_FRAME_TIME)
 #define USB_SYNC_FRAMES           16        // Assume we can sync with io side in 16 USB frames
+#define USB_LOSS_FRAMES           32        // Assume USB stopped communicating if we lag by 32 USB frames
 
 // General parameters for sound, ADC/PWM side
 #define MAX_IO_CHUNK            MAX_SAMPLES_PER_FRAME

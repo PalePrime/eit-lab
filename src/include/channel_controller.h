@@ -15,13 +15,13 @@
 extern "C" {
 #endif
 
-typedef enum {
+typedef enum ch_ctrl_t {
   CH_DATA_RECEIVED,
   CH_DATA_SENT,
   CH_SET_RATE
 } ch_ctrl_t;
 
-typedef struct {
+typedef struct ch_ctrl_msg_t {
   ch_ctrl_t cmd;
   uint64_t time;
   uint64_t count;
@@ -35,7 +35,7 @@ typedef struct {
 // The values in this struct will be updated only by a
 // single task and all individual updates are atomic
 // 32-bit writes, so no mutex required
-typedef struct {
+typedef struct usb_channel_state_t {
   // Updated from controller task
   audio_state_t state;
   uint32_t ioChunk;
@@ -48,6 +48,9 @@ typedef struct {
   uint32_t sendCalls;
   uint32_t sampleRate;
   uint32_t oversampling;
+  uint32_t autozero;
+  uint32_t samplemask;
+  uint32_t amplify;
   // Updated from CODEC task
   uint32_t offset;
   // Updated from ISR
@@ -61,7 +64,7 @@ typedef struct {
 // This is the interface a channel needs to
 // implement. It is created at initialization
 // and constitutes the API used by the controller
-typedef struct {
+typedef struct usb_channel_settings_t {
   const char *idStr;
   bool toUsb;
   void (*init)(void);
@@ -69,14 +72,17 @@ typedef struct {
   void (*setDiv)(uint32_t);
   void (*open)(void);
   void (*close)(void);
-  state_register_t progStateReg; 
-  state_register_t progOverReg; 
+  state_register_t stateReg; 
+  state_register_t overReg;
+  state_register_t maskReg;
+  state_register_t amplReg;
+  state_register_t autoZeroReg;
 } usb_channel_settings_t;
 
 // This represents the channel, i.e. the
 // combination of its API, state and controller
 // task
-typedef struct {
+typedef struct usb_channel_t {
   usb_channel_state_t state;
   // Fields below are private to the channel controller
   usb_channel_settings_t *settings;

@@ -140,8 +140,9 @@ static usb_channel_settings_t spkChSettings = {
   .setDiv = setSpkDiv,
   .open = openSpkCh,
   .close = closeSpkCh,
-  .progStateReg = SPK_AUDIO_STATE,
-  .progOverReg = SPK_OVERSAMPLE
+  .stateReg = SPK_AUDIO_STATE,
+  .overReg = SPK_OVERSAMPLE,
+  .maskReg = SPK_BITMASK
 };
 
 void createSpkChannel() {
