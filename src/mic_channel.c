@@ -35,6 +35,9 @@ static int16_t micBuf[2][MAX_OVER_SAMPLE * MAX_IO_CHUNK];
 // Use the fifo implementation from the TinyUSB package
 TU_FIFO_DEF(dataIn, 512, int16_t, false);
 
+// Fifo for processed, sound data waiting to be sent over USB
+TU_FIFO_DEF(dataToUSB, 512, int16_t, false);
+
 // Buffer location of next buffer to use
 static int16_t* nextBuffer = micBuf[1];
 
@@ -146,7 +149,8 @@ static void micCodecTask(void *pvParameters) {
         }
         buf[i] = sum & micChannel.state.samplemask;
       }
-      tud_audio_write(buf, (count << 1));
+      tu_fifo_write_n(&dataToUSB, buf, count);
+      //tud_audio_write(buf, (count << 1));
     }
   }
 }
@@ -263,14 +267,28 @@ void createMicChannel() {
 }
 
 bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t func_id, uint8_t ep_in, uint8_t cur_alt_setting) {
+  int16_t buf[MAX_SAMPLES_PER_FRAME+4];
+  uint32_t targetSamples = micChannel.state.usbChunk;
   if (micChannel.state.state == AUDIO_IDLE) {
     tu_fifo_t* ff = tud_audio_get_ep_in_ff();
     tu_fifo_clear(ff);
+    tu_fifo_clear(&dataToUSB);
+  //  tu_fifo_clear(&dataIn);
   //   tud_audio_write(zeroBuf, micCh.ioChunk);
   //   tud_audio_write(zeroBuf, micCh.ioChunk);
   // } else {
   //   uint16_t count = tu_fifo_count(ff);
   //   usbDebugSet(4, count);
+  } else {
+    uint32_t availableSamples = tu_fifo_count(&dataToUSB);
+    if (availableSamples < (targetSamples << 1)) {
+      targetSamples--;
+    } else if (availableSamples > (targetSamples << 1)+targetSamples) {
+      targetSamples++;
+    }
+    assert (targetSamples<MAX_SAMPLES_PER_FRAME+4);
+    uint32_t count = tu_fifo_read_n(&dataToUSB, buf, targetSamples);
+    tud_audio_write(buf, (count << 1));
   }
   return true;
 }
