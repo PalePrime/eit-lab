@@ -10,6 +10,7 @@
 #include "uac2_handling.h"
 
 #include "pico/stdlib.h"
+#include "filters.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,8 +52,10 @@ typedef struct usb_channel_state_t {
   uint32_t autozero;
   uint32_t samplemask;
   uint32_t amplify;
+  iir_cf   *filter;
   // Updated from CODEC task
   uint32_t offset;
+  uint32_t resetCodec;
   // Updated from ISR
   uint32_t isrCtrlFails;
   // Updated from USB task
@@ -77,6 +80,7 @@ typedef struct usb_channel_settings_t {
   state_register_t maskReg;
   state_register_t amplReg;
   state_register_t autoZeroReg;
+  state_register_t filterReg;
 } usb_channel_settings_t;
 
 // This represents the channel, i.e. the

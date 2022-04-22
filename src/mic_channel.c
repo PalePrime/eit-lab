@@ -14,6 +14,7 @@
 #include "program_state.h"
 #include "uac2_handling.h"
 #include "mic_channel.h"
+#include "filters.h"
 
 static StackType_t  mic_codec_stack[MIC_CODEC_STACK_SIZE];
 static StaticTask_t mic_codec_def;
@@ -78,34 +79,22 @@ typedef struct {
   int32_t current;
 } running_avg_t;
 
-static inline void updateAvg(running_avg_t *avg, int32_t sample, uint32_t autozero) {
-  if (autozero) {
-    avg->count++;
-    avg->sum += sample;
-    if ((avg->count & 0xfff) == 0) {
-      int32_t roundedAvg = (avg->sum + 8) >> 4;
-      if (avg->await > 0) {
-        avg->await--;
-        if (avg->await == 0) {
-          avg->current = roundedAvg;
-        }
-      } else {
-        avg->current += (roundedAvg - avg->current) >> 4;
-        // if (roundedAvg > avg->current) {
-        //   avg->current++;
-        // } else if (roundedAvg < avg->current) {
-        //   avg->current--;
-        // }
+static inline void updateAvg(running_avg_t *avg, int32_t sample) {
+  avg->count++;
+  avg->sum += sample;
+  if ((avg->count & 0xfff) == 0) {
+    int32_t roundedAvg = (avg->sum + 8) >> 4;
+    if (avg->await > 0) {
+      avg->await--;
+      if (avg->await == 0) {
+        avg->current = roundedAvg;
       }
-      avg->sum = 0;
-      avg->count = 0;
-      micChannel.state.offset = (avg->current + 128) >> 8;
+    } else {
+      avg->current += (roundedAvg - avg->current) >> 4;
     }
-  } else {
     avg->sum = 0;
     avg->count = 0;
-    avg->await = 2;
-    avg->current = 0;
+    micChannel.state.offset = (avg->current + 128) >> 8;
   }
 }
 
@@ -124,33 +113,41 @@ static void micCodecTask(void *pvParameters) {
       tu_fifo_read_n(&dataIn, buf, count << micChannel.state.oversampling);
       availableSamples -= count;
       for (uint32_t i=0; i<count; i++) {
-        int32_t sum = 0;
+        int32_t reset = micChannel.state.resetCodec;
+        if (reset) {
+          avg.sum = 0;
+          avg.count = 0;
+          avg.await = 2;
+          avg.current = 0;
+          micChannel.state.resetCodec = false;
+        }
+        int32_t sample;
         for (uint32_t j=0; j<(1 << micChannel.state.oversampling); j++) {
-          int32_t sample = buf[(i << micChannel.state.oversampling) + j];
+          sample = buf[(i << micChannel.state.oversampling) + j];
           sample &= 0xfff;
-          sum += sample;
-          updateAvg(&avg, sample, micChannel.state.autozero);
-        }
-        if (micChannel.state.autozero) {
-          if (avg.await) {
-            sum = 0;
+          if (micChannel.state.autozero) {
+            updateAvg(&avg, sample);
+            if (avg.await) {
+              sample = 0;
+            } else {
+              sample -= (avg.current >> 8);
+            }
           } else {
-            sum -= (avg.current >> (8 - micChannel.state.oversampling));
+            sample -= 2048;
           }
-        } else {
-          sum -= 2048 << micChannel.state.oversampling;
+          sample = sample << micChannel.state.amplify;
+          if (sample > 2047) {
+            sample = 2047;
+          } else if (sample < -2048) {
+            sample = -2048;
+          }
+          if (micChannel.state.filter) {
+            sample = iir_TrFII_filter(sample, reset, micChannel.state.filter);
+          }
         }
-        sum = (sum >> micChannel.state.oversampling);
-        sum = sum << micChannel.state.amplify;
-        if (sum > 2047) {
-          sum = 2047;
-        } else if (sum < -2048) {
-          sum = -2048;
-        }
-        buf[i] = sum & micChannel.state.samplemask;
+        buf[i] = sample & micChannel.state.samplemask;
       }
       tu_fifo_write_n(&dataToUSB, buf, count);
-      //tud_audio_write(buf, (count << 1));
     }
   }
 }
@@ -196,7 +193,8 @@ static usb_channel_settings_t micChSettings = {
   .autoZeroReg = MIC_AUTOZERO,
   .overReg = MIC_OVERSAMPLE,
   .maskReg = MIC_BITMASK,
-  .amplReg = MIC_AMPLIFY
+  .amplReg = MIC_AMPLIFY,
+  .filterReg = MIC_FILTER
 };
 
 void createMicChannel() {

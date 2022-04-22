@@ -86,6 +86,7 @@ typedef enum state_register_t {
   MIC_BITMASK,
   MIC_AMPLIFY,
   MIC_AUTOZERO,
+  MIC_FILTER,
   SPK_OVERSAMPLE,
   SPK_BITMASK,
 

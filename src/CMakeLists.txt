@@ -13,6 +13,7 @@ add_executable(pa_audio
         channel_controller.c
         spk_channel.c
         mic_channel.c
+        filters.c
         )
 
 target_include_directories(pa_audio PRIVATE

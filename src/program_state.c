@@ -10,6 +10,7 @@
 #include "program_config.h"
 #include "program_state.h"
 #include "hardware/clocks.h"
+#include "filters.h"
 
 #define PWR_SAVE_PIN 23
 
@@ -85,6 +86,14 @@ static menu_item_info_t oversample_info = {
   }
 };
 
+static menu_item_value_t filter_choices[] = {{.label = "None", .value = 0}, {.label = "LP8", .value = (uint32_t)&low_pass8}};
+static menu_item_info_t filter_info = {
+  .choice_info = {
+    .count = 2,
+    .choices = filter_choices
+  }
+};
+
 static menu_item_value_t mask_choices[] = {{.label = "12 bits", .value = 0xffff}, {.label = " 8 bits", .value = 0xfff0},
                                            {.label = " 6 bits", .value = 0xffc0}, {.label = " 4 bits", .value = 0xff00},
                                            {.label = " 3 bits", .value = 0xfe00}, {.label = " 2 bits", .value = 0xfc00}};
@@ -105,6 +114,7 @@ static menu_item_t general_menu[] = {
 static menu_item_t mic_menu[] = {
   {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Oversample",  .reg = MIC_OVERSAMPLE},
   {.kind = CHOICE_ITEM, .info = &mask_info,       .text = "AD Bits",     .reg = MIC_BITMASK},
+  {.kind = CHOICE_ITEM, .info = &filter_info,     .text = "Filter",      .reg = MIC_FILTER},
   {.kind = CHOICE_ITEM, .info = &oversample_info, .text = "Pre-amplify", .reg = MIC_AMPLIFY},
   {.kind = CHOICE_ITEM, .info = &boolean_info,    .text = "Auto zero",   .reg = MIC_AUTOZERO}
 };

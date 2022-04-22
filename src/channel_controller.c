@@ -4,11 +4,11 @@
 #include "uac2_handling.h"
 #include "program_state.h"
 
-static inline uint32_t getStateItem(state_register_t reg, uint32_t oterwise) {
+static inline uint32_t getStateItem(state_register_t reg, uint32_t otherwise) {
   if (reg) {
     return getRegister(reg);
   } else {
-    return oterwise;
+    return otherwise;
   }
 }
 
@@ -18,6 +18,8 @@ static void startChannel(usb_channel_t *ch) {
   state->autozero         =  getStateItem(ch->settings->autoZeroReg, 0);
   state->samplemask       =  getStateItem(ch->settings->maskReg, 0xFFFF);
   state->amplify          =  getStateItem(ch->settings->amplReg, 0);
+  state->filter           =  (iir_cf*) getStateItem(ch->settings->filterReg, 0);
+  state->resetCodec       =  true;
   state->isrCtrlFails     =  0;
   state->usbCtrlFails     =  0;
   state->receiveCalls     =  0;
