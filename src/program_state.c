@@ -417,7 +417,9 @@ void createEventHandler() {
   // Prepare to control power save mode to improve ADC performance
   gpio_set_function(PWR_SAVE_PIN, GPIO_FUNC_SIO);
   gpio_set_dir(PWR_SAVE_PIN, GPIO_OUT);
-  update_pwr_smooth(false);
+
+  setRegister(PWR_SMOOTH_STATE, 1);
+  update_pwr_smooth(true);
 
   uint32_t sysClock = clock_get_hz(clk_sys);
   setRegister(SYS_CLK_FREQ, sysClock / 1000);
