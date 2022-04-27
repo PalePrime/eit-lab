@@ -19,12 +19,12 @@ int16_t iir_TrFII_filter(int16_t sample, uint32_t reset, const iir_cf *cf) {
     }
   }
   int16_t x_in = sample;
-  for (uint32_t sect = 0; sect < cf->sections; sect++) {
+  for (int32_t sect = cf->sections - 1; sect >= 0; sect--) {
     const iir_sos_cf *sos = &(cf->sect_cf[sect]);
-    int32_t y_out  = (int32_t)x_in * (int32_t)sos->b0 + w[sect][0];
+    int32_t y_out  = x_in * sos->b0 + w[sect][0];
     int16_t y_next = IIR_ROUND(y_out);
-    w[sect][0] = (int32_t)x_in * (int32_t)sos->b1 + w[sect][1] - (int32_t)y_next * (int32_t)sos->a1;
-    w[sect][1] = (int32_t)x_in * (int32_t)sos->b2              - (int32_t)y_next * (int32_t)sos->a2;
+    w[sect][0] = x_in * sos->b1 + w[sect][1] - y_next * sos->a1;
+    w[sect][1] = x_in * sos->b2              - y_next * sos->a2;
     x_in = y_next;
   }
   return x_in;
