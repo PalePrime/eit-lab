@@ -13,6 +13,8 @@
 #include "program_config.h"
 #include "display_handling.h"
 #include "program_state.h"
+#include "spk_channel.h"
+#include "mic_channel.h"
 
 using namespace pimoroni;
 
@@ -115,6 +117,24 @@ void display_loop() {
   }
 
   graphics.set_pen(255, 255, 255);
+
+  usb_channel_state_t spkCh; 
+  usb_channel_state_t micCh; 
+  cloneChannelState(&spkCh, &spkChannel.state);
+  cloneChannelState(&micCh, &micChannel.state);
+
+  if (micCh.state != AUDIO_IDLE) {
+    graphics.set_pen(255, 0, 0);
+    graphics.circle(Point( 10, 10), 5);
+    graphics.set_pen(255, 255, 255);
+    graphics.text(std::to_string(micCh.sampleRate)+" x "+std::to_string(1 << micCh.oversampling), Point(   25,  5), 230);
+  }
+  if (spkCh.state != AUDIO_IDLE) {
+    graphics.set_pen(0, 255, 0);
+    graphics.triangle(Point( 5, 25), Point(5, 35), Point(15, 30));
+    graphics.set_pen(255, 255, 255);
+    graphics.text(std::to_string(spkCh.sampleRate)+" x "+std::to_string(1 << spkCh.oversampling), Point(   25,  25), 230);
+  }
 
   menu_state_t state = getMenuState();
 

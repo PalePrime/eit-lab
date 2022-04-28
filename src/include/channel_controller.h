@@ -106,8 +106,8 @@ inline static void cloneChannelState(usb_channel_state_t *dest, const usb_channe
 inline static uint32_t controlMsg(usb_channel_t *channel, ch_ctrl_t cmd, uint64_t value) {
   ch_ctrl_msg_t msg = {
     .cmd = cmd,
-    .count = value,
-    .time = to_us_since_boot(get_absolute_time())
+    .time = to_us_since_boot(get_absolute_time()),
+    .count = value
   };
   return xQueueSendToBack(channel->cmd_q, &msg, 0);
 }
@@ -115,8 +115,8 @@ inline static uint32_t controlMsg(usb_channel_t *channel, ch_ctrl_t cmd, uint64_
 inline static uint32_t controlMsgFromISR(usb_channel_t *channel, ch_ctrl_t cmd, uint64_t value) {
   ch_ctrl_msg_t msg = {
     .cmd = cmd,
-    .count = value,
-    .time = to_us_since_boot(get_absolute_time())
+    .time = to_us_since_boot(get_absolute_time()),
+    .count = value
   };
   return xQueueSendToBackFromISR(channel->cmd_q, &msg, 0);
 }

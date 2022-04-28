@@ -60,8 +60,14 @@ static void pwmDmaHandler() {
     if (controlMsgFromISR(&spkChannel, CH_DATA_SENT, spkChannel.state.ioChunk) != pdPASS) {
       spkChannel.state.isrCtrlFails++;
     }
-    // 2. Fill the next buffer from the fifo of processed sound data
-    if (tu_fifo_read_n(&dataOut, nextBuffer, spkChannel.state.ioChunk) < spkChannel.state.ioChunk) {
+    // 2. Fill the next buffer from the fifo of processed sound data...
+    if (tu_fifo_count(&dataOut) >= spkChannel.state.ioChunk) {
+      tu_fifo_read_n(&dataOut, nextBuffer, spkChannel.state.ioChunk);
+    } else {
+      // ...or, if data is missing, zero out the buffer
+      for (uint32_t i = 0; i<spkChannel.state.ioChunk; i++) {
+        nextBuffer[i] = 127;
+      }
       spkChannel.state.underRuns++;
     }
   } else {
