@@ -12,6 +12,21 @@
 
 static volatile uint32_t audioSampleRate = BASE_SAMPLE_RATE;
 
+typedef struct rateItem_t {
+  uint32_t minR;
+  uint32_t maxR;
+  uint32_t step;
+} rateItem_t;
+
+static const rateItem_t allRates[] = {
+  {.minR = 96000, .maxR = 96000, .step =     0},
+  {.minR = 16000, .maxR = 48000, .step = 16000},
+  {.minR =  4000, .maxR =  8000, .step =  4000},
+  {.minR =  1000, .maxR =  2000, .step =   500}, 
+};
+
+#define rateCount (sizeof(allRates) / sizeof(rateItem_t))
+
 // Audio controls
 // Current states
 static int8_t mute[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX + 1];       // +1 for master channel 0
@@ -31,10 +46,14 @@ static bool tud_audio_clock_get_request(uint8_t rhport, audio_control_request_t 
     }
     else if (request->bRequest == AUDIO_CS_REQ_RANGE)
     {
-      audio_control_range_4_n_t(1) rangef =
+      audio_control_range_4_n_t(rateCount) rangef =
       {
-        .wNumSubRanges = tu_htole16(1),
-        .subrange[0] = { tu_htole32(MIN_SAMPLE_RATE), tu_htole32(MAX_SAMPLE_RATE), tu_htole32(1)}
+        .wNumSubRanges = tu_htole16(rateCount),
+      };
+      for (uint32_t r = 0; r < rateCount; r++) {
+        rangef.subrange[r].bMin = tu_htole32(allRates[r].minR);
+        rangef.subrange[r].bMax = tu_htole32(allRates[r].maxR);
+        rangef.subrange[r].bRes = tu_htole32(allRates[r].step);
       };
       // sendMessageEventf("Clock get freq range (%d, %d, %d)", (int)rangef.subrange[0].bMin, (int)rangef.subrange[0].bMax, (int)rangef.subrange[0].bRes);
       return tud_audio_buffer_and_schedule_control_xfer(rhport, (tusb_control_request_t const *)request, &rangef, sizeof(rangef));
