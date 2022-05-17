@@ -152,15 +152,10 @@ static void micCodecTask(void *pvParameters) {
   }
 }
 
-static void initMicCh() {
-}
-
 static void openMicCh() {
-  // tu_fifo_t* ff = tud_audio_get_ep_in_ff();
-  // tu_fifo_clear(ff);
-  //tud_audio_write(zeroBuf, micChannel.state.ioChunk);
+  float clockDiv = ((float)USB_CLOCK_RATE / (float)(micChannel.state.sampleRate << micChannel.state.oversampling)) - 1.0;
+  adc_set_clkdiv(clockDiv);
   dma_channel_set_trans_count(adcDmaCh, micChannel.state.ioChunk << micChannel.state.oversampling, false);
-  //dma_channel_set_write_addr(adcDmaCh, micBuf, true);
   dma_channel_start(adcDmaCh);
 }
 
@@ -172,20 +167,11 @@ void setMicDiv(uint32_t clockDiv) {
   
 }
 
-void setMicChRate(usb_channel_state_t *state, u_int32_t sampleRate) {
-  state->sampleRate = sampleRate;
-  float clockDiv = ((float)USB_CLOCK_RATE / (float)(sampleRate << (state->oversampling))) - 1.0;
-  adc_set_clkdiv(clockDiv);
-
-}
-
 static usb_channel_settings_t micChSettings = {
   // .state = &micCh,
   // .queue = &mic_cmd_q,
   .idStr = "Mic",
   .toUsb = true,
-  .init = initMicCh,
-  .setRate = setMicChRate,
   .setDiv = setMicDiv,
   .open = openMicCh,
   .close = closeMicCh,

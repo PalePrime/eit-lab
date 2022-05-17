@@ -68,21 +68,21 @@ static void chController(void *pvParameters) {
   uint64_t recSamples = 0;
   uint64_t sendSamples = 0;
   
-  (p->setRate)(state, BASE_SAMPLE_RATE);
-  (p->init)();
   while (true) {
     if (xQueueReceive(q, &cmd, portMAX_DELAY) == pdTRUE) {
       switch (cmd.cmd) {
         case CH_SET_RATE:
           // printf("Ctrl %s w q-handle %x set rate %x\n", p->idStr, ch->cmd_q, cmd.count);
-          if (state->state != AUDIO_IDLE) {
-            (p->close)();
-            state->state = AUDIO_IDLE;
-            sendRegisterEvent(ch->settings->stateReg, SET, AUDIO_IDLE);
+          if ((uint32_t)cmd.count != state->sampleRate) {
+            if (state->state != AUDIO_IDLE) {
+              (p->close)();
+              state->state = AUDIO_IDLE;
+              sendRegisterEvent(ch->settings->stateReg, SET, AUDIO_IDLE);
+            }
+            state->sampleRate = (uint32_t)cmd.count;
+            state->usbChunk = (uint32_t)cmd.count / (uint32_t)USB_FRAME_TIME;
+            state->ioChunk = state->usbChunk;
           }
-          (p->setRate)(state, cmd.count);
-          state->usbChunk = (uint32_t)cmd.count / (uint32_t)USB_FRAME_TIME;
-          state->ioChunk = state->usbChunk;
           break;
         case CH_DATA_RECEIVED:
           if (!p->toUsb && state->state == AUDIO_IDLE) {
@@ -161,7 +161,7 @@ void newChannelController(usb_channel_settings_t *channelSettings, usb_channel_t
 
   channel->state.state = AUDIO_IDLE;
   channel->state.usbChunk = (uint32_t)BASE_SAMPLE_RATE / (uint32_t)USB_FRAME_TIME;
-  channel->state.ioChunk = (channel->state.usbChunk) >> 1;
+  channel->state.ioChunk = channel->state.usbChunk;
   channel->settings = channelSettings;
 
   uint32_t nLen = strlen(channelSettings->idStr);

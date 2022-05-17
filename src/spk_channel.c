@@ -111,12 +111,6 @@ static void initSpkCh() {
   // however, we don't know which core runs this...
 }
 
-static void openSpkCh() {
-  pwm_set_enabled(pwmSlice, true);
-  dma_channel_set_trans_count(pwmDmaCh, spkChannel.state.ioChunk, false);
-  dma_channel_start(pwmDmaBufCh);
-}
-
 static void closeSpkCh() {
   dma_channel_abort(pwmDmaCh);
   pwm_set_enabled(pwmSlice, false);
@@ -131,18 +125,21 @@ static uint32_t computeSpkDiv(uint32_t sampleRate) {
   return ((sysClock + (sampleRate >> 1)) / sampleRate) + (1 << 4);
 }
 
-static void setSpkChRate(usb_channel_state_t *state,  uint32_t sampleRate) {
-  state->sampleRate = sampleRate;
-  uint32_t clkDiv = computeSpkDiv(sampleRate);
-  state->clkDiv = clkDiv;
+static void openSpkCh() {
+  uint32_t clkDiv = computeSpkDiv(spkChannel.state.sampleRate);
+  spkChannel.state.clkDiv = clkDiv;
   setSpkDiv(clkDiv);
+  pwm_set_enabled(pwmSlice, true);
+  dma_channel_set_trans_count(pwmDmaCh, spkChannel.state.ioChunk, false);
+  dma_channel_start(pwmDmaBufCh);
+}
+
+static void setSpkChRate(usb_channel_state_t *state,  uint32_t sampleRate, uint32_t oversampling) {
 }
 
 static usb_channel_settings_t spkChSettings = {
   .idStr = "Spk",
   .toUsb = false,
-  .init = initSpkCh,
-  .setRate = setSpkChRate,
   .setDiv = setSpkDiv,
   .open = openSpkCh,
   .close = closeSpkCh,

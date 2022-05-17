@@ -70,8 +70,6 @@ typedef struct usb_channel_state_t {
 typedef struct usb_channel_settings_t {
   const char *idStr;
   bool toUsb;
-  void (*init)(void);
-  void (*setRate)(usb_channel_state_t *, uint32_t);
   void (*setDiv)(uint32_t);
   void (*open)(void);
   void (*close)(void);
