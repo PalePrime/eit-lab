@@ -82,19 +82,19 @@ static void pwmDmaHandler() {
 
 static void spkCodecTask(void *pvParameters) {
   bool loop;
-  int16_t buf[MAX_IO_CHUNK];
+  int16_t buf[MAX_IO_CHUNK << 1];
   while(true) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     loop = true;
     while (loop) {
-      uint32_t availableSamples = tud_audio_available() >> 1;
+      uint32_t availableSamples = tud_audio_available() >> 2;
       if (availableSamples > MAX_IO_CHUNK) {
         availableSamples = MAX_IO_CHUNK;
       } else {
         loop = false;
       }
       tud_audio_read(buf, availableSamples << 1);
-      for (uint32_t i=0; i<availableSamples; i++) {
+      for (uint32_t i=0; i<availableSamples; i = i+2) {
         int16_t sample = buf[i];
         sample = sample>>8;           // -128 -- +127 in low byte, sign in high byte
         sample = (sample+128) & 0xff; //    0 --  255 in low byte, zero in high byte
@@ -242,7 +242,7 @@ void createSpkChannel() {
 bool tud_audio_rx_done_pre_read_cb(uint8_t rhport, uint16_t n_bytes_received, uint8_t func_id, uint8_t ep_out, uint8_t cur_alt_setting) {
 //  pinState = !pinState;
 //  gpio_put(DBG_PIN, pinState);
-  if(controlMsg(&spkChannel, CH_DATA_RECEIVED, n_bytes_received >> 1) != pdPASS) {
+  if(controlMsg(&spkChannel, CH_DATA_RECEIVED, n_bytes_received >> 2) != pdPASS) {
     spkChannel.state.usbCtrlFails++;
   }
 //   tu_fifo_t *ff = tud_audio_get_ep_in_ff();
